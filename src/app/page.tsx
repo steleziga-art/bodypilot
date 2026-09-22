@@ -1,10 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { mergeDatedDiaries, diaryForDate } from "@/lib/nutrition/dailyDiary";
+import SyncStatus from "@/components/system/SyncStatus";
+import cygLogo from "./cyg-logo.jpeg";
+import { useEffect, useMemo, useState, useRef } from "react";
 import FoodDiary from "@/components/FoodDiary";
 import FoodSearch from "@/components/FoodSearch";
+import NutritionInsights from "@/components/nutrition/NutritionInsights";
 import MealOptimizer from "@/components/MealOptimizer";
 import Training from "@/components/training/Training";
+import AccountPanel from "@/components/account/AccountPanel";
+import NutritionHub from "@/components/nutrition/NutritionHub";
+import FriendsPanel from "@/components/social/FriendsPanel";
+import CoachPage from "@/components/coach/CoachPage";
+import Looksmaxing from "@/components/looksmaxing/Looksmaxing";
+import PremiumPaywall from "@/components/premium/PremiumPaywall";
+import { applyMucipesAppearance, cmToDisplay, displayToCm, displayToKg, formatEnergy, formatLength, formatWeight, kgToDisplay, lengthUnitLabel, weightUnitLabel } from "@/lib/mucipes/display";
+import { loadCloudData, saveCloudData } from "@/lib/supabase/storage";
 
 type Page =
   | "dashboard"
@@ -12,7 +24,8 @@ type Page =
   | "training"
   | "progress"
   | "plan"
-  | "profile";
+  | "profile"
+  | "looksmaxing";
 
 type Food = {
   id: number;
@@ -22,6 +35,7 @@ type Food = {
   carbs: number;
   fat: number;
   mealId?: string;
+  micronutrients?: Record<string, { value: number; unit: string }>;
 };
 
 type Meal = {
@@ -37,6 +51,7 @@ type Goals = {
 };
 
 type AppMode = "guided" | "self-managed";
+type PlanTier = "free" | "premium";
 
 type Sex = "male" | "female";
 type FitnessGoal = "lose" | "maintain" | "gain";
@@ -97,6 +112,11 @@ type NutritionDay = {
   fat: number;
 };
 
+type FoodDiaryDay = {
+  date: string;
+  foods: Food[];
+};
+
 type WeightEntry = {
   id: number;
   date: string;
@@ -127,6 +147,90 @@ type TrainingHistoryEntry = {
   exercises: TrainingExercise[];
 };
 
+type HomeActiveWorkout = {
+  id: string;
+  name: string;
+  startedAt: string;
+  exercises?: Array<{ sets?: Array<{ completed?: boolean }> }>;
+};
+
+type HomeFastingState = {
+  active: boolean;
+  startedAt: string | null;
+  targetHours: number;
+};
+
+function readLocalJson<T>(key: string): T | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatLiveDuration(ms: number) {
+  const safe = Math.max(0, ms);
+  const hours = Math.floor(safe / 3600000);
+  const minutes = Math.floor((safe % 3600000) / 60000);
+  const seconds = Math.floor((safe % 60000) / 1000);
+  return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function roundEstimated1RM(kg: number, units: "metric" | "imperial") {
+  if (units === "imperial") {
+    return Math.round(kgToDisplay(kg, units));
+  }
+  return Math.round(kg * 2) / 2;
+}
+
+function formatEstimated1RM(kg: number, units: "metric" | "imperial") {
+  return `${roundEstimated1RM(kg, units).toLocaleString(undefined, { maximumFractionDigits: units === "metric" ? 1 : 0 })} ${weightUnitLabel(units)}`;
+}
+
+const micronutrientLookupAttempts = new Set<string>();
+
+type FoodSearchNutrient = { nutrientName?: string; unitName?: string; value?: number };
+type FoodSearchApiFood = { description?: string; source?: string; foodNutrients?: FoodSearchNutrient[] };
+
+const microAliases: Record<string, string[]> = {
+  vitaminA: ["vitamin a, rae", "vitamin a"],
+  vitaminC: ["vitamin c, total ascorbic acid", "vitamin c"],
+  vitaminD: ["vitamin d (d2 + d3)"],
+  vitaminE: ["vitamin e (alpha-tocopherol)", "vitamin e"],
+  vitaminK: ["vitamin k (phylloquinone)", "vitamin k"],
+  thiamin: ["thiamin", "vitamin b-1"],
+  riboflavin: ["riboflavin", "vitamin b-2"],
+  niacin: ["niacin", "vitamin b-3"],
+  vitaminB6: ["vitamin b-6", "vitamin b6"],
+  folate: ["folate, dfe", "folate, total", "folate"],
+  vitaminB12: ["vitamin b-12", "vitamin b12"],
+  calcium: ["calcium, ca", "calcium"],
+  iron: ["iron, fe", "iron"],
+  magnesium: ["magnesium, mg", "magnesium"],
+  potassium: ["potassium, k", "potassium"],
+  zinc: ["zinc, zn", "zinc"],
+  selenium: ["selenium, se", "selenium"],
+  sodium: ["sodium, na", "sodium"],
+  fiber: ["fiber, total dietary", "fiber"],
+};
+
+function micronutrientsFromApiFood(food: FoodSearchApiFood, grams: number) {
+  const out: Record<string, { value: number; unit: string }> = {};
+  const multiplier = grams / 100;
+  for (const [key, aliases] of Object.entries(microAliases)) {
+    const nutrient = food.foodNutrients?.find((item) => {
+      const name = item.nutrientName?.trim().toLowerCase() ?? "";
+      return aliases.includes(name);
+    });
+    if (typeof nutrient?.value !== "number" || !Number.isFinite(nutrient.value)) continue;
+    const unit = (nutrient.unitName || (key === "fiber" ? "g" : "mg")).replace("UG", "µg").replace("ug", "µg");
+    out[key] = { value: Math.round(nutrient.value * multiplier * 100) / 100, unit };
+  }
+  return out;
+}
+
 const defaultGoals: Goals = {
   calories: 2500,
   protein: 180,
@@ -154,9 +258,30 @@ const defaultMeals: Meal[] = [
 ];
 
 export default function Home() {
+  const [pinLooks, setPinLooks] = useState(false);
+  useEffect(() => {
+    const sync = () => setPinLooks(localStorage.getItem("cyg-pin-looksmaxing") === "true");
+    sync(); window.addEventListener("cyg-navigation", sync); window.addEventListener("storage", sync);
+    return () => { window.removeEventListener("cyg-navigation", sync); window.removeEventListener("storage", sync); };
+  }, []);
+  const [globalDisplay, setGlobalDisplay] = useState(() => readMucipesDisplaySettings());
+  useEffect(() => {
+    const sync = () => setGlobalDisplay(readMucipesDisplaySettings());
+    window.addEventListener("mucipes-settings-changed", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("mucipes-settings-changed", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+
+  useEffect(() => applyMucipesAppearance(globalDisplay), [globalDisplay]);
+
   const [activePage, setActivePage] =
     useState<Page>("dashboard");
 
+  const [diaryDate, setDiaryDate] = useState(getTodayDateInput);
+  const diaryDateRef = useRef(diaryDate);
   const [foods, setFoods] =
     useState<Food[]>([]);
 
@@ -175,17 +300,33 @@ export default function Home() {
   const [nutritionHistory, setNutritionHistory] =
     useState<NutritionDay[]>([]);
 
+  const [foodDiaryHistory, setFoodDiaryHistory] =
+    useState<FoodDiaryDay[]>([]);
+
   const [dashboardTrainingHistory, setDashboardTrainingHistory] =
     useState<TrainingHistoryEntry[]>([]);
 
   const [loaded, setLoaded] =
     useState(false);
 
+  const [cloudReady, setCloudReady] = useState(false);
+
   const [showOnboarding, setShowOnboarding] =
     useState(false);
 
   const [appMode, setAppMode] =
     useState<AppMode>("guided");
+
+  const [planTier, setPlanTier] = useState<PlanTier>(() => {
+    if (typeof window === "undefined") return "free";
+    return localStorage.getItem("bodypilot-plan-tier") === "premium" ? "premium" : "free";
+  });
+
+  function previewPlanTier(tier: PlanTier) {
+    setPlanTier(tier);
+    localStorage.setItem("bodypilot-plan-tier", tier);
+    window.dispatchEvent(new Event("mucipes-plan-tier-changed"));
+  }
 
   useEffect(() => {
     try {
@@ -219,6 +360,16 @@ export default function Home() {
           "bodypilot-nutrition-history"
         );
 
+      const savedFoodDiaryHistory =
+        localStorage.getItem(
+          "bodypilot-food-diary-history"
+        );
+
+      const savedFoodDiaryDate =
+        localStorage.getItem(
+          "bodypilot-food-diary-date"
+        );
+
       const savedAppMode =
         localStorage.getItem("bodypilot-app-mode");
 
@@ -226,14 +377,38 @@ export default function Home() {
         setAppMode(savedAppMode);
       }
 
-      if (savedFoods) {
-        const parsedFoods =
-          JSON.parse(savedFoods);
+      const today = getTodayDateInput();
+
+      if (savedFoodDiaryHistory) {
+        const parsedDiaryHistory = JSON.parse(savedFoodDiaryHistory);
+
+        if (Array.isArray(parsedDiaryHistory)) {
+          setFoodDiaryHistory(parsedDiaryHistory);
+
+          const todayDiary = parsedDiaryHistory.find(
+            (day: FoodDiaryDay) => day.date === today
+          );
+
+          if (todayDiary && Array.isArray(todayDiary.foods)) {
+            setFoods(todayDiary.foods);
+          } else if (savedFoodDiaryDate === today && savedFoods) {
+            const parsedFoods = JSON.parse(savedFoods);
+            if (Array.isArray(parsedFoods)) setFoods(parsedFoods);
+          } else {
+            setFoods([]);
+          }
+        }
+      } else if (savedFoods) {
+        const parsedFoods = JSON.parse(savedFoods);
 
         if (Array.isArray(parsedFoods)) {
-          setFoods(parsedFoods);
+          const savedDate = savedFoodDiaryDate || today;
+          if (savedDate === today) setFoods(parsedFoods);
+          else setFoodDiaryHistory([{date:savedDate, foods:parsedFoods}]);
         }
       }
+
+      localStorage.setItem("bodypilot-food-diary-date", today);
 
       if (savedMeals) {
         const parsedMeals =
@@ -321,7 +496,7 @@ export default function Home() {
       }
     } catch (error) {
       console.error(
-        "Could not load BodyPilot data:",
+        "Could not load CYG data:",
         error
       );
     } finally {
@@ -332,6 +507,62 @@ export default function Home() {
       setLoaded(true);
     }
   }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+
+    let cancelled = false;
+
+    async function hydrateFromCloud() {
+      const diaryBeforeHydration: FoodDiaryDay[] = (()=>{try{return JSON.parse(localStorage.getItem("bodypilot-food-diary-history")||"[]")}catch{return []}})();
+      const [
+        cloudFoods,
+        cloudMeals,
+        cloudGoals,
+        cloudWeight,
+        cloudProfile,
+        cloudNutritionHistory,
+        cloudFoodDiaryHistory,
+        cloudAppMode,
+        cloudOnboarding,
+      ] = await Promise.all([
+        loadCloudData<Food[]>("foods"),
+        loadCloudData<Meal[]>("meals"),
+        loadCloudData<Goals>("goals"),
+        loadCloudData<WeightEntry[]>("weight"),
+        loadCloudData<BodyProfile>("profile"),
+        loadCloudData<NutritionDay[]>("nutrition_history"),
+        loadCloudData<FoodDiaryDay[]>("food_diary_history"),
+        loadCloudData<AppMode>("app_mode"),
+        loadCloudData<boolean>("onboarding"),
+      ]);
+
+      if (cancelled) return;
+
+      // Legacy cloud `foods` has no date and must never overwrite today's diary.
+      if (Array.isArray(cloudFoodDiaryHistory)) {
+        const localDiary: FoodDiaryDay[] = (() => { try { return JSON.parse(localStorage.getItem("bodypilot-food-diary-history") || "[]"); } catch { return []; } })();
+        const merged = mergeDatedDiaries(cloudFoodDiaryHistory, localDiary, diaryBeforeHydration.map(day=>day.date));
+        setFoodDiaryHistory(merged);
+        const today = getTodayDateInput();
+        setDiaryDate(today); diaryDateRef.current = today;
+        setFoods(diaryForDate(merged, today));
+      }
+      if (Array.isArray(cloudMeals) && cloudMeals.length) setMeals(cloudMeals);
+      if (cloudGoals) setGoals(cloudGoals);
+      if (Array.isArray(cloudWeight)) setWeightEntries(cloudWeight);
+      if (cloudProfile) setBodyProfile({ ...defaultProfile, ...cloudProfile });
+      if (Array.isArray(cloudNutritionHistory)) setNutritionHistory(local => Array.from(new Map([...cloudNutritionHistory,...local].map(day=>[day.date,day])).values()).sort((a,b)=>a.date.localeCompare(b.date)));
+
+      if (cloudAppMode === "guided" || cloudAppMode === "self-managed") setAppMode(cloudAppMode);
+      if (cloudOnboarding === true) setShowOnboarding(false);
+
+      setCloudReady(true);
+    }
+
+    void hydrateFromCloud();
+    return () => { cancelled = true; };
+  }, [loaded]);
 
   useEffect(() => {
     if (!loaded) {
@@ -358,13 +589,47 @@ export default function Home() {
       JSON.stringify(weightEntries)
     );
 
+    if (cloudReady) {
+      void Promise.all([
+        saveCloudData("foods", foods),
+        saveCloudData("meals", meals),
+        saveCloudData("goals", goals),
+        saveCloudData("weight", weightEntries),
+      ]);
+    }
+
   }, [
     foods,
     meals,
     goals,
     weightEntries,
     loaded,
+    cloudReady,
   ]);
+
+  useEffect(() => {
+    if (!loaded) {
+      return;
+    }
+
+    const today = diaryDate;
+
+    setFoodDiaryHistory((current) => {
+      const withoutToday = current.filter((day) => day.date !== today);
+      const next = [...withoutToday, { date: today, foods }]
+        .sort((a, b) => a.date.localeCompare(b.date))
+;
+
+      localStorage.setItem(
+        "bodypilot-food-diary-history",
+        JSON.stringify(next)
+      );
+      localStorage.setItem("bodypilot-food-diary-date", today);
+      if (cloudReady) void saveCloudData("food_diary_history", next);
+
+      return next;
+    });
+  }, [foods, diaryDate, loaded, cloudReady]);
 
   useEffect(() => {
     if (!loaded) {
@@ -375,7 +640,8 @@ export default function Home() {
       "bodypilot-profile",
       JSON.stringify(bodyProfile)
     );
-  }, [bodyProfile, loaded]);
+    if (cloudReady) void saveCloudData("profile", bodyProfile);
+  }, [bodyProfile, loaded, cloudReady]);
 
   useEffect(() => {
     if (activePage !== "dashboard") {
@@ -432,6 +698,48 @@ export default function Home() {
       0
     );
 
+  useEffect(() => {
+    if (!loaded || foods.length === 0) return;
+
+    const candidates = foods
+      .filter((food) => !food.micronutrients || Object.keys(food.micronutrients).length === 0)
+      .map((food) => {
+        const match = food.name.match(/^(.*?)\s*\((\d+(?:\.\d+)?)\s*g\)\s*$/i);
+        if (!match) return null;
+        return { food, query: match[1].trim(), grams: Number(match[2]) };
+      })
+      .filter((item): item is { food: Food; query: string; grams: number } => Boolean(item && item.query && item.grams > 0))
+      .filter((item) => !micronutrientLookupAttempts.has(`${item.food.id}:${item.query.toLowerCase()}`))
+      .slice(0, 8);
+
+    if (candidates.length === 0) return;
+    let cancelled = false;
+
+    async function enrichMicronutrients() {
+      const patches = new Map<number, Record<string, { value: number; unit: string }>>();
+      for (const item of candidates) {
+        const attemptKey = `${item.food.id}:${item.query.toLowerCase()}`;
+        micronutrientLookupAttempts.add(attemptKey);
+        try {
+          const response = await fetch(`/api/food-search?query=${encodeURIComponent(item.query)}`);
+          if (!response.ok) continue;
+          const data = await response.json() as { foods?: FoodSearchApiFood[] };
+          const match = data.foods?.find((candidate) => candidate.source === "USDA") ?? data.foods?.[0];
+          if (!match) continue;
+          const micros = micronutrientsFromApiFood(match, item.grams);
+          if (Object.keys(micros).length > 0) patches.set(item.food.id, micros);
+        } catch {
+          // Keep macro logging usable even when enrichment is unavailable.
+        }
+      }
+      if (cancelled || patches.size === 0) return;
+      setFoods((current) => current.map((food) => patches.has(food.id) ? { ...food, micronutrients: patches.get(food.id) } : food));
+    }
+
+    void enrichMicronutrients();
+    return () => { cancelled = true; };
+  }, [loaded, foods]);
+
   const caloriesRemaining =
     goals.calories - caloriesEaten;
 
@@ -449,7 +757,7 @@ export default function Home() {
       return;
     }
 
-    const today = getTodayDateInput();
+    const today = diaryDate;
 
     setNutritionHistory((current) => {
       const todaySnapshot: NutritionDay = {
@@ -470,22 +778,43 @@ export default function Home() {
             new Date(a.date).getTime() -
             new Date(b.date).getTime()
         )
-        .slice(-120);
+;
 
       localStorage.setItem(
         "bodypilot-nutrition-history",
         JSON.stringify(next)
       );
+      if (cloudReady) void saveCloudData("nutrition_history", next);
 
       return next;
     });
   }, [
     loaded,
+    diaryDate,
     caloriesEaten,
     proteinEaten,
     carbsEaten,
     fatEaten,
+    cloudReady,
   ]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const rollover = () => {
+      const today = getTodayDateInput();
+      if (today === diaryDateRef.current) return;
+      diaryDateRef.current = today;
+      let entries: FoodDiaryDay[] = [];
+      try { entries = JSON.parse(localStorage.getItem("bodypilot-food-diary-history") || "[]"); } catch {}
+      setDiaryDate(today);
+      setFoods(diaryForDate(entries, today));
+    };
+    const timer = window.setInterval(rollover, 1000);
+    window.addEventListener("focus", rollover);
+    document.addEventListener("visibilitychange", rollover);
+    rollover();
+    return () => { clearInterval(timer); window.removeEventListener("focus", rollover); document.removeEventListener("visibilitychange", rollover); };
+  }, [loaded]);
 
   function addFood(food: Food) {
     setFoods((current) => [
@@ -525,6 +854,78 @@ export default function Home() {
           : food
       )
     );
+  }
+
+  function updateFood(updatedFood: Food) {
+    setFoods((current) =>
+      current.map((food) =>
+        food.id === updatedFood.id ? updatedFood : food
+      )
+    );
+  }
+
+  function duplicateFood(id: number) {
+    setFoods((current) => {
+      const food = current.find((item) => item.id === id);
+      if (!food) return current;
+
+      return [
+        ...current,
+        {
+          ...food,
+          id: Date.now() + Math.floor(Math.random() * 1000),
+        },
+      ];
+    });
+  }
+
+  function duplicateMeal(mealId: string) {
+    setFoods((current) => {
+      const mealFoods = current.filter(
+        (food) => (food.mealId || "breakfast") === mealId
+      );
+
+      if (mealFoods.length === 0) return current;
+
+      const now = Date.now();
+
+      return [
+        ...current,
+        ...mealFoods.map((food, index) => ({
+          ...food,
+          id: now + index + 1,
+        })),
+      ];
+    });
+  }
+
+  function copyYesterdayFoods() {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayKey = [
+      yesterday.getFullYear(),
+      String(yesterday.getMonth() + 1).padStart(2, "0"),
+      String(yesterday.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    const previousDay = foodDiaryHistory.find(
+      (day) => day.date === yesterdayKey
+    );
+
+    if (!previousDay || previousDay.foods.length === 0) {
+      return false;
+    }
+
+    const now = Date.now();
+
+    setFoods(
+      previousDay.foods.map((food, index) => ({
+        ...food,
+        id: now + index + 1,
+      }))
+    );
+
+    return true;
   }
 
   function addMeal(name: string) {
@@ -590,89 +991,38 @@ export default function Home() {
               "bodypilot-onboarding-complete",
               "true"
             );
+            void saveCloudData("app_mode", mode);
+            void saveCloudData("onboarding", true);
             setShowOnboarding(false);
             setActivePage(mode === "guided" ? "plan" : "dashboard");
           }}
         />
       )}
-      <nav className="sticky top-0 z-50 border-b border-slate-200 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4 sm:px-6 sm:py-5">
+      <nav className="sticky top-0 z-50 hidden border-b border-slate-200 bg-white/95 backdrop-blur md:block">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-4">
           <button
-            onClick={() =>
-              setActivePage(
-                "dashboard"
-              )
-            }
-            className="text-2xl font-bold tracking-tight"
+            onClick={() => setActivePage("dashboard")}
+            className="flex items-center gap-3 text-xl font-black tracking-tight"
           >
-            BodyPilot
+            <img src={cygLogo.src} alt="CYG" className="h-11 w-11 rounded-xl object-cover" />
+            <span>CYG<small className="block text-[10px] font-semibold tracking-widest text-slate-500">Choose Your Goal</small></span>
           </button>
 
-          <div className="flex max-w-[70vw] gap-2 overflow-x-auto text-sm sm:max-w-none sm:gap-6">
-            <NavButton
-              name="Dashboard"
-              page="dashboard"
-              activePage={
-                activePage
-              }
-              setActivePage={
-                setActivePage
-              }
-            />
-
-            <NavButton
-              name="Nutrition"
-              page="nutrition"
-              activePage={
-                activePage
-              }
-              setActivePage={
-                setActivePage
-              }
-            />
-
-            <NavButton
-              name="Training"
-              page="training"
-              activePage={
-                activePage
-              }
-              setActivePage={
-                setActivePage
-              }
-            />
-
+          <div className="flex items-center gap-1 rounded-2xl bg-slate-100 p-1">
+            <AppNavButton label="Home" page="dashboard" activePage={activePage} setActivePage={setActivePage} />
+            <AppNavButton label="Workout" page="training" activePage={activePage} setActivePage={setActivePage} />
+            <AppNavButton label="Nutrition" page="nutrition" activePage={activePage} setActivePage={setActivePage} />
             {appMode === "guided" && (
-              <NavButton
-                name="Get Fit Plan"
-                page="plan"
-                activePage={activePage}
-                setActivePage={setActivePage}
-              />
+              <AppNavButton label="Plan" page="plan" activePage={activePage} setActivePage={setActivePage} />
             )}
-
-            <NavButton
-              name="Progress"
-              page="progress"
-              activePage={
-                activePage
-              }
-              setActivePage={
-                setActivePage
-              }
-            />
-
-            <NavButton
-              name="Profile"
-              page="profile"
-              activePage={activePage}
-              setActivePage={setActivePage}
-            />
+            {pinLooks && <AppNavButton label="Looksmaxing" page="looksmaxing" activePage={activePage} setActivePage={setActivePage} />}
+            <AppNavButton label="More" page="profile" activePage={activePage} setActivePage={setActivePage} />
           </div>
         </div>
       </nav>
 
-      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
+      <SyncStatus />
+      <div className="mx-auto max-w-6xl px-4 py-6 pb-28 sm:px-6 sm:py-10 md:pb-10">
         {activePage ===
           "dashboard" && (
           <Dashboard
@@ -700,6 +1050,7 @@ export default function Home() {
             }
             bodyProfile={bodyProfile}
             nutritionHistory={nutritionHistory}
+            displaySettings={globalDisplay}
             setActivePage={
               setActivePage
             }
@@ -708,7 +1059,7 @@ export default function Home() {
 
         {activePage ===
           "nutrition" && (
-          <Nutrition
+          <NutritionHub key={diaryDate}
             foods={foods}
             meals={meals}
             goals={goals}
@@ -754,6 +1105,22 @@ export default function Home() {
             nutritionHistory={
               nutritionHistory
             }
+            foodDiaryHistory={foodDiaryHistory}
+            onUpdateDiary={(date, updatedFoods)=>{
+              if(date===diaryDate){setFoods(updatedFoods);return;}
+              const diary=[...foodDiaryHistory.filter(d=>d.date!==date),{date,foods:updatedFoods}].sort((a,b)=>a.date.localeCompare(b.date));
+              const totals=updatedFoods.reduce((t,f)=>({calories:t.calories+f.calories,protein:t.protein+f.protein,carbs:t.carbs+f.carbs,fat:t.fat+f.fat}),{calories:0,protein:0,carbs:0,fat:0});
+              const snapshots=[...nutritionHistory.filter(d=>d.date!==date),{date,...totals}].sort((a,b)=>a.date.localeCompare(b.date));
+              setFoodDiaryHistory(diary);setNutritionHistory(snapshots);
+              localStorage.setItem("bodypilot-food-diary-history",JSON.stringify(diary));localStorage.setItem("bodypilot-nutrition-history",JSON.stringify(snapshots));
+              if(cloudReady){void saveCloudData("food_diary_history",diary);void saveCloudData("nutrition_history",snapshots);}
+            }}
+            updateFood={updateFood}
+            duplicateFood={duplicateFood}
+            duplicateMeal={duplicateMeal}
+            copyYesterdayFoods={copyYesterdayFoods}
+            displaySettings={globalDisplay}
+            planTier={planTier}
           />
         )}
 
@@ -772,6 +1139,7 @@ export default function Home() {
             weightEntries={weightEntries}
             nutritionHistory={nutritionHistory}
             setActivePage={setActivePage}
+            displaySettings={globalDisplay}
           />
         )}
 
@@ -784,7 +1152,12 @@ export default function Home() {
             setWeightEntries={
               setWeightEntries
             }
+            displaySettings={globalDisplay}
           />
+        )}
+
+        {activePage === "looksmaxing" && (
+          <Looksmaxing planTier={planTier} onPreviewPremium={() => previewPlanTier("premium")} />
         )}
 
         {activePage === "profile" && (
@@ -793,9 +1166,30 @@ export default function Home() {
             setProfile={setBodyProfile}
             appMode={appMode}
             setAppMode={setAppMode}
+            setActivePage={setActivePage}
+            trainingHistory={dashboardTrainingHistory}
+            nutritionHistory={nutritionHistory}
+            goals={goals}
+            weightEntries={weightEntries}
+            displaySettings={globalDisplay}
+            planTier={planTier}
+            setPlanTier={previewPlanTier}
           />
         )}
       </div>
+
+      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur md:hidden">
+        <div className="mx-auto flex max-w-lg items-center justify-around">
+          <MobileNavButton icon="⌂" label="Home" page="dashboard" activePage={activePage} setActivePage={setActivePage} />
+          <MobileNavButton icon="◉" label="Workout" page="training" activePage={activePage} setActivePage={setActivePage} />
+          <MobileNavButton icon="●" label="Nutrition" page="nutrition" activePage={activePage} setActivePage={setActivePage} />
+          {appMode === "guided" && (
+            <MobileNavButton icon="✦" label="Plan" page="plan" activePage={activePage} setActivePage={setActivePage} />
+          )}
+          {pinLooks && <MobileNavButton icon="✧" label="Looksmaxing" page="looksmaxing" activePage={activePage} setActivePage={setActivePage} />}
+          <MobileNavButton icon="•••" label="More" page="profile" activePage={activePage} setActivePage={setActivePage} />
+        </div>
+      </nav>
     </main>
   );
 }
@@ -845,16 +1239,22 @@ function OnboardingModal({
         <div className="flex items-center justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600">
-              Welcome to BodyPilot
+              Welcome to CYG
             </p>
             <h1 className="mt-2 text-3xl font-black">
-              {step === -1 ? "How do you want to use BodyPilot?" : "Build your starting plan"}
+              {step === -1 ? "Choose your CYG experience" : "Personalize your starting plan"}
             </h1>
           </div>
           <span className="text-sm text-slate-500">
             {step === -1 ? "Start" : `${step + 1}/${steps.length}`}
           </span>
         </div>
+
+        {step === -1 && (
+          <div className="mt-5 flex flex-wrap gap-2">
+            {["Training","Nutrition","Progress","Adaptive plan"].map(item=><span key={item} className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600">{item}</span>)}
+          </div>
+        )}
 
         {step >= 0 && (
         <div className="mt-6 flex gap-2">
@@ -882,8 +1282,8 @@ function OnboardingModal({
               className="rounded-3xl border border-emerald-500 bg-emerald-500/10 p-6 text-left transition hover:bg-emerald-500/15"
             >
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">Guided</p>
-              <h2 className="mt-3 text-2xl font-black">BodyPilot guides me</h2>
-              <p className="mt-3 leading-6 text-slate-600">BodyPilot builds your nutrition, training and cardio plan from your goals and progress, then helps you adjust it over time.</p>
+              <h2 className="mt-3 text-2xl font-black">Guided by CYG</h2>
+              <p className="mt-3 leading-6 text-slate-600">CYG builds your nutrition, training and cardio plan from your goals and progress, then helps you adjust it over time.</p>
               <p className="mt-5 font-semibold text-emerald-600">Create my plan →</p>
             </button>
 
@@ -892,8 +1292,8 @@ function OnboardingModal({
               className="rounded-3xl border border-slate-200 bg-white p-6 text-left transition hover:border-slate-400"
             >
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Experienced</p>
-              <h2 className="mt-3 text-2xl font-black">I’ll manage it myself</h2>
-              <p className="mt-3 leading-6 text-slate-600">Use BodyPilot as your tracker. Set your own targets, build your own workouts and log nutrition, weight and progress yourself.</p>
+              <h2 className="mt-3 text-2xl font-black">Self-managed</h2>
+              <p className="mt-3 leading-6 text-slate-600">Use CYG as your tracker. Set your own targets, build your own workouts and log nutrition, weight and progress yourself.</p>
               <p className="mt-5 font-semibold text-slate-950">Go to dashboard →</p>
             </button>
           </div>
@@ -1147,41 +1547,411 @@ function OnboardingModal({
 }
 
 
+
+type MorePanel = "calendar" | "achievements" | "notifications" | "devices" | "support" | "about" | "account" | "friends" | "coach";
+
+function MoreActionCard({
+  title,
+  detail,
+  onClick,
+}: {
+  title: string;
+  detail: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="font-black text-slate-900">{title}</p>
+          <p className="mt-1 text-xs text-slate-500">{detail}</p>
+        </div>
+        <span className="text-xl text-slate-300">›</span>
+      </div>
+    </button>
+  );
+}
+
+function morePanelTitle(panel: MorePanel) {
+  return ({
+    calendar: "Calendar",
+    achievements: "Achievements",
+    notifications: "Notifications",
+    devices: "Apps & Devices",
+    support: "Support",
+    about: "About CYG",
+    account: "Account & Sync",
+    friends: "Friends",
+    coach: "CYG Coach",
+  } as Record<MorePanel, string>)[panel];
+}
+
+function MorePanelContent({
+  panel,
+  trainingHistory,
+  nutritionHistory,
+  goals,
+  weightEntries,
+  displaySettings,
+}: {
+  panel: MorePanel;
+  trainingHistory: TrainingHistoryEntry[];
+  nutritionHistory: NutritionDay[];
+  goals: Goals;
+  weightEntries: WeightEntry[];
+  displaySettings: ReturnType<typeof readMucipesDisplaySettings>;
+}) {
+  const completedSets = trainingHistory.reduce(
+    (sum, workout) =>
+      sum +
+      workout.exercises.reduce(
+        (exerciseSum, exercise) =>
+          exerciseSum + exercise.sets.filter((set) => set.completed).length,
+        0
+      ),
+    0
+  );
+
+  if (panel === "calendar") {
+    const recentWorkouts = [...trainingHistory]
+      .sort((a,b) => new Date(b.finishedAt).getTime() - new Date(a.finishedAt).getTime())
+      .slice(0, 6);
+    return (
+      <div className="mt-6 space-y-3">
+        <p className="text-sm text-slate-500">Recent training and nutrition activity.</p>
+        {recentWorkouts.map((workout) => (
+          <div key={workout.id} className="rounded-2xl bg-slate-50 p-4">
+            <div className="flex justify-between gap-3">
+              <p className="font-black text-slate-900">{workout.name}</p>
+              <p className="text-xs text-slate-400">{new Date(workout.finishedAt).toLocaleDateString()}</p>
+            </div>
+            <p className="mt-1 text-sm text-slate-500">{Math.round(workout.durationSeconds/60)} min · {workout.exercises.length} exercises</p>
+          </div>
+        ))}
+        {recentWorkouts.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">No workouts logged yet.</p>}
+        <p className="pt-2 text-xs font-bold uppercase tracking-widest text-slate-400">{nutritionHistory.length} nutrition days saved</p>
+      </div>
+    );
+  }
+
+  if (panel === "achievements") {
+    return (
+      <div className="mt-6 grid grid-cols-2 gap-3">
+        <MoreStat label="Workouts logged" value={trainingHistory.length} />
+        <MoreStat label="Completed sets" value={completedSets} />
+        <MoreStat label="Nutrition days" value={nutritionHistory.length} />
+        <MoreStat label="Milestone" value={trainingHistory.length >= 10 ? "10+ workouts" : `${Math.max(0,10-trainingHistory.length)} to 10`} />
+      </div>
+    );
+  }
+
+  if (panel === "notifications") {
+    return (
+      <div className="mt-6 space-y-3">
+        <MoreToggle storageKey="bodypilot-notify-workout" title="Workout reminder" detail="Remind me about planned training." />
+        <MoreToggle storageKey="bodypilot-notify-nutrition" title="Nutrition reminder" detail="Remind me to finish daily logging." />
+        <MoreToggle storageKey="bodypilot-notify-weighin" title="Weigh-in reminder" detail="Weekly bodyweight reminder." />
+      </div>
+    );
+  }
+
+  if (panel === "devices") {
+    return (
+      <div className="mt-6 space-y-3">
+        {["Apple Health", "Garmin", "Strava"].map((name) => (
+          <div key={name} className="flex items-center justify-between rounded-2xl border border-slate-200 p-4">
+            <div><p className="font-black">{name}</p><p className="text-xs text-slate-500">External platform connection requires its production API and user permission.</p></div>
+            <span className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-400">Soon</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (panel === "support") {
+    return (
+      <div className="mt-6 space-y-3 text-sm text-slate-600">
+        <div className="rounded-2xl bg-slate-50 p-4"><p className="font-black text-slate-900">Quick help</p><p className="mt-1">Your data is synced to your CYG cloud account with local browser caching for fast loading.</p></div>
+        <div className="rounded-2xl bg-slate-50 p-4"><p className="font-black text-slate-900">Feedback</p><p className="mt-1">Support and feedback submission will connect to the production backend later.</p></div>
+      </div>
+    );
+  }
+
+  return (
+    <section className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm" aria-label="About CYG">
+      <div className="bg-gradient-to-br from-slate-950 via-blue-950 to-blue-900 p-6 sm:p-8">
+        <img src={cygLogo.src} alt="CYG logo" className="h-20 w-20 rounded-2xl object-cover shadow-lg" />
+        <p className="mt-5 text-xs font-bold uppercase tracking-[0.2em] text-blue-200">Choose Your Goal</p>
+        <h2 className="mt-2 text-2xl font-black tracking-tight text-white">CYG by Mucipes</h2>
+        <p className="mt-3 max-w-md text-sm leading-6 text-blue-100">Training, nutrition and progress in one focused app.</p>
+      </div>
+      <div className="p-5 sm:p-8">
+        <h3 className="text-lg font-black text-slate-950">Stay connected</h3>
+        <p className="mt-1 text-sm text-slate-500">Follow our updates or get in touch.</p>
+        <div className="mt-5 grid gap-3">
+          <a href="https://www.instagram.com/chooseyourgoal/" target="_blank" rel="noopener noreferrer" className="group flex min-h-20 items-center gap-4 rounded-2xl border border-blue-100 bg-blue-50/50 p-4 transition hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-blue-950 text-white">
+              <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" /></svg>
+            </span>
+            <span className="min-w-0 flex-1"><span className="block text-xs font-semibold text-slate-500">Instagram</span><span className="mt-1 block break-words text-sm font-bold text-slate-950">@chooseyourgoal</span></span>
+            <span aria-hidden="true" className="text-xl text-blue-800">↗</span>
+            <span className="sr-only">Opens in a new tab</span>
+          </a>
+          <a href="mailto:chooseyourowngoal@gmail.com" className="flex min-h-20 items-center gap-4 rounded-2xl border border-slate-200 p-4 transition hover:border-blue-300 hover:bg-blue-50/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-blue-950">
+              <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="3" /><path d="m4 7 8 6 8-6" /></svg>
+            </span>
+            <span className="min-w-0 flex-1"><span className="block text-xs font-semibold text-slate-500">Email</span><span className="mt-1 block break-all text-sm font-bold text-slate-950">chooseyourowngoal@gmail.com</span></span>
+            <span aria-hidden="true" className="text-xl text-blue-800">→</span>
+          </a>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function MoreStat({label,value}:{label:string;value:string|number}) {
+  return <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p><p className="mt-2 text-xl font-black">{value}</p></div>;
+}
+
+function MoreToggle({storageKey,title,detail}:{storageKey:string;title:string;detail:string}) {
+  const [enabled,setEnabled] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(storageKey) === "true";
+  });
+  return (
+    <button onClick={() => { const next=!enabled; setEnabled(next); localStorage.setItem(storageKey,String(next)); }} className="flex w-full items-center justify-between gap-4 rounded-2xl border border-slate-200 p-4 text-left">
+      <div><p className="font-black text-slate-900">{title}</p><p className="mt-1 text-xs text-slate-500">{detail}</p></div>
+      <span className={`relative h-7 w-12 rounded-full transition ${enabled ? "bg-emerald-500" : "bg-slate-200"}`}><span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition ${enabled ? "left-6" : "left-1"}`} /></span>
+    </button>
+  );
+}
+
+
+function MoreFullPage({
+  page,
+  trainingHistory,
+  nutritionHistory,
+  profile,
+}: {
+  page: MorePanel;
+  trainingHistory: TrainingHistoryEntry[];
+  nutritionHistory: NutritionDay[];
+  profile: BodyProfile;
+}) {
+  const [calendarMonth, setCalendarMonth] = useState(() => new Date());
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
+
+  if (page === "account") {
+    return <AccountPanel />;
+  }
+
+  if (page === "calendar") {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const first = new Date(year, month, 1);
+    const days = new Date(year, month + 1, 0).getDate();
+    const calendarSettings = readMucipesDisplaySettings();
+    const mondayOffset = calendarSettings.weekStarts === "sunday" ? first.getDay() : (first.getDay() + 6) % 7;
+    const workoutDates = new Set(trainingHistory.map(w => w.finishedAt.slice(0,10)));
+    const nutritionDates = new Set(nutritionHistory.map((d:any) => String(d.date).slice(0,10)));
+    const cells = Array.from({length:mondayOffset + days}, (_,i) => i < mondayOffset ? null : i-mondayOffset+1);
+    const keyFor=(day:number)=>`${year}-${String(month+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+    const selectedWorkouts = selectedDay ? trainingHistory.filter(w=>w.finishedAt.slice(0,10)===selectedDay) : [];
+
+    return (
+      <div className="grid gap-5 lg:grid-cols-[1fr_.55fr]">
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <button onClick={()=>setCalendarMonth(new Date(year,month-1,1))} className="rounded-xl border border-slate-200 px-3 py-2 font-black">←</button>
+            <h2 className="text-xl font-black">{calendarMonth.toLocaleDateString(undefined,{month:"long",year:"numeric"})}</h2>
+            <button onClick={()=>setCalendarMonth(new Date(year,month+1,1))} className="rounded-xl border border-slate-200 px-3 py-2 font-black">→</button>
+          </div>
+          <div className="mt-5 grid grid-cols-7 gap-2 text-center text-xs font-bold text-slate-400">
+            {(calendarSettings.weekStarts === "sunday" ? ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"] : ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]).map(d=><div key={d}>{d}</div>)}
+          </div>
+          <div className="mt-2 grid grid-cols-7 gap-2">
+            {cells.map((day,i)=>{
+              if(!day) return <div key={`e-${i}`} />;
+              const key=keyFor(day);
+              const workout=workoutDates.has(key), nutrition=nutritionDates.has(key);
+              return (
+                <button key={key} onClick={()=>setSelectedDay(key)}
+                  className={`min-h-20 rounded-2xl border p-2 text-left transition ${selectedDay===key?"border-emerald-500 bg-emerald-50":"border-slate-200 hover:bg-slate-50"}`}>
+                  <span className="font-black text-slate-800">{day}</span>
+                  <div className="mt-3 flex gap-1">
+                    {workout && <span className="h-2 w-2 rounded-full bg-emerald-500" />}
+                    {nutrition && <span className="h-2 w-2 rounded-full bg-amber-400" />}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+        <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h3 className="text-lg font-black">{selectedDay || "Select a day"}</h3>
+          <div className="mt-4 space-y-3">
+            {selectedWorkouts.map(w=><div key={w.id} className="rounded-2xl bg-slate-50 p-4"><p className="font-black">{w.name}</p><p className="mt-1 text-sm text-slate-500">{Math.round(w.durationSeconds/60)} min · {w.exercises.length} exercises</p></div>)}
+            {selectedDay && selectedWorkouts.length===0 && <p className="text-sm text-slate-500">No workout logged on this day.</p>}
+          </div>
+        </section>
+      </div>
+    );
+  }
+
+  if (page === "achievements") {
+    const totalSets=trainingHistory.reduce((sum,w)=>sum+w.exercises.reduce((a,e)=>a+e.sets.filter(x=>x.completed).length,0),0);
+    const totalVolume=Math.round(trainingHistory.reduce((sum,w)=>sum+w.exercises.reduce((a,e)=>a+e.sets.reduce((z,x)=>z+(x.weight||0)*(x.reps||0),0),0),0));
+    const achievements=[
+      ["First Flight","Complete your first workout",trainingHistory.length>=1],
+      ["Consistency","Complete 10 workouts",trainingHistory.length>=10],
+      ["Century","Complete 100 working sets",totalSets>=100],
+      ["Volume Builder","Lift 100,000 kg total volume",totalVolume>=100000],
+      ["Nutrition Logger","Save 7 nutrition days",nutritionHistory.length>=7],
+      ["Committed","Complete 50 workouts",trainingHistory.length>=50],
+    ];
+    return <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{achievements.map(([title,detail,done]:any)=><div key={title} className={`rounded-3xl border p-5 ${done?"border-emerald-200 bg-emerald-50":"border-slate-200 bg-white"}`}><div className={`grid h-12 w-12 place-items-center rounded-2xl text-xl font-black ${done?"bg-emerald-500 text-white":"bg-slate-100 text-slate-400"}`}>{done?"✓":"○"}</div><p className="mt-4 text-lg font-black">{title}</p><p className="mt-1 text-sm text-slate-500">{detail}</p></div>)}</div>;
+  }
+
+  if (page === "notifications") {
+    return <div className="max-w-2xl space-y-4"><MoreToggle storageKey="bodypilot-notify-workout" title="Workout reminder" detail="Remind me about today's planned workout."/><MoreToggle storageKey="bodypilot-notify-nutrition" title="Nutrition reminder" detail="Remind me if daily nutrition logging is incomplete."/><MoreToggle storageKey="bodypilot-notify-weighin" title="Weekly weigh-in" detail="Get a weekly reminder to record bodyweight."/><MoreToggle storageKey="bodypilot-notify-rest" title="Rest-day check-in" detail="CYG can surface recovery reminders."/></div>;
+  }
+
+  if (page === "devices") {
+    const devices = [
+      { name: "Apple Health", detail: "Health, workouts, weight and activity", status: "Native iOS bridge required" },
+      { name: "Apple Watch", detail: "Workout and heart-rate data", status: "Syncs through Apple Health" },
+      { name: "Health Connect", detail: "Android health and activity data", status: "Native Android bridge required" },
+      { name: "Garmin", detail: "Training and activity data", status: "Garmin API authorization required" },
+      { name: "Strava", detail: "Workout activity sync", status: "OAuth integration not configured" },
+    ];
+    return <div className="space-y-4"><div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-900"><p className="font-black">No fake connections</p><p className="mt-1">CYG only shows a connection as available when the required platform authorization is actually configured. Your current web build keeps these integrations read-only on this screen.</p></div><div className="grid gap-4 md:grid-cols-2">{devices.map((device)=><div key={device.name} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-4"><div><p className="text-lg font-black">{device.name}</p><p className="mt-1 text-sm text-slate-500">{device.detail}</p></div><span className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-500">Unavailable</span></div><div className="mt-5 rounded-xl bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-500">{device.status}</div></div>)}</div></div>;
+  }
+
+  if (page === "support") {
+    return <div className="grid gap-4 lg:grid-cols-2"><section className="rounded-3xl border border-slate-200 bg-white p-6"><h2 className="text-xl font-black">Help center</h2><div className="mt-5 space-y-3">{[
+      ["How do I start a workout?","Open Workout, choose Start New Workout or a saved routine, add exercises and complete each set. Your finished session feeds History, Progress, Coach and weekly summaries."],
+      ["How is my calorie goal calculated?","Guided Plan estimates a starting target from your profile, activity and goal. Weekly trend data can suggest small adjustments that you choose whether to apply."],
+      ["Where is my data stored?","CYG keeps a fast local browser cache and syncs supported app data to your Supabase account."],
+      ["How do I back up CYG?","Open More → Data & Backup to export a JSON backup. The same screen can restore that file later."],
+    ].map(([q,a])=><details key={q} className="rounded-2xl bg-slate-50 p-4"><summary className="cursor-pointer font-bold">{q}</summary><p className="mt-3 text-sm leading-6 text-slate-600">{a}</p></details>)}</div></section><FeedbackBox /></div>;
+  }
+
+  return (
+    <div className="max-w-3xl space-y-5">
+      <section className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
+        <div className="grid h-20 w-20 place-items-center rounded-3xl bg-emerald-500 text-2xl font-black text-white">CYG</div>
+        <h2 className="mt-6 text-3xl font-black">CYG</h2>
+        <p className="mt-3 max-w-xl leading-7 text-slate-600">Training, nutrition, progress and adaptive guidance in one connected app.</p>
+      </section>
+      <section className="grid gap-3 sm:grid-cols-3">
+        <MoreStat label="Mode" value="Tester build" />
+        <MoreStat label="Storage" value="Cloud + local" />
+        <MoreStat label="Profile" value={formatWeight(profile.weight, readMucipesDisplaySettings().units)} />
+      </section>
+      <section className="rounded-3xl border border-slate-200 bg-white p-6">
+        <h3 className="font-black">Build status</h3>
+        <p className="mt-2 text-sm leading-6 text-slate-500">Core training, nutrition, progress, social, fasting and guided-plan flows are active. External health/device integrations remain intentionally unavailable until their platform authorization is configured.</p>
+      </section>
+    </div>
+  );
+}
+
+function FeedbackBox() {
+  const [text, setText] = useState("");
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+
+  async function submitFeedback() {
+    const clean = text.trim();
+    if (!clean || status === "saving") return;
+    setStatus("saving");
+    const entry = { id: `${Date.now()}`, createdAt: new Date().toISOString(), message: clean };
+    try {
+      const raw = localStorage.getItem("bodypilot-feedback");
+      const current = raw ? JSON.parse(raw) : [];
+      const next = [...(Array.isArray(current) ? current : []), entry].slice(-50);
+      localStorage.setItem("bodypilot-feedback", JSON.stringify(next));
+      await saveCloudData("feedback", next);
+      setText("");
+      setStatus("saved");
+      window.setTimeout(() => setStatus("idle"), 2200);
+    } catch (error) {
+      console.error("Could not save feedback", error);
+      setStatus("error");
+    }
+  }
+
+  return <section className="rounded-3xl border border-slate-200 bg-white p-6"><h2 className="text-xl font-black">Send feedback</h2><p className="mt-2 text-sm text-slate-500">Saved to your CYG cloud data so tester notes are not just a decorative button.</p><textarea value={text} onChange={(event)=>{setText(event.target.value); if(status==="error") setStatus("idle");}} className="mt-4 min-h-40 w-full rounded-2xl border border-slate-200 p-4 outline-none focus:border-emerald-400" placeholder="Tell us what should be improved..." /><div className="mt-3 flex flex-wrap items-center gap-3"><button type="button" disabled={!text.trim() || status==="saving"} onClick={()=>void submitFeedback()} className="rounded-xl bg-emerald-500 px-5 py-3 font-black text-white disabled:opacity-50">{status==="saving"?"Saving…":status==="saved"?"Saved ✓":"Send feedback"}</button>{status==="error"&&<p className="text-sm font-semibold text-red-500">Could not sync feedback. Try again.</p>}</div></section>;
+}
+
 function ProfilePage({
   profile,
   setProfile,
   appMode,
   setAppMode,
+  setActivePage,
+  trainingHistory,
+  nutritionHistory,
+  goals,
+  weightEntries,
+  displaySettings,
+  planTier,
+  setPlanTier,
 }: {
   profile: BodyProfile;
   setProfile: React.Dispatch<React.SetStateAction<BodyProfile>>;
   appMode: AppMode;
   setAppMode: React.Dispatch<React.SetStateAction<AppMode>>;
+  setActivePage: React.Dispatch<React.SetStateAction<Page>>;
+  trainingHistory: TrainingHistoryEntry[];
+  nutritionHistory: NutritionDay[];
+  goals: Goals;
+  weightEntries: WeightEntry[];
+  displaySettings: ReturnType<typeof readMucipesDisplaySettings>;
+  planTier: PlanTier;
+  setPlanTier: (tier: PlanTier) => void;
 }) {
-  type ProfileTab = "profile" | "preferences" | "settings";
+  const [morePage, setMorePage] = useState<
+    "main" | "calendar" | "achievements" | "notifications" | "devices" | "support" | "about" | "account" | "friends" | "coach"
+  >("main");
+  const [detailPage, setDetailPage] = useState<"main" | "profile" | "goals" | "display" | "data" | "fasting">("main");
+  const [moreSearch, setMoreSearch] = useState("");
+  const [profileSaved, setProfileSaved] = useState(false);
+  const [settingsSaved, setSettingsSaved] = useState(false);
+
+  useEffect(() => {
+    const intent = localStorage.getItem("mucipes-more-detail-intent");
+    if (intent === "fasting" || intent === "profile" || intent === "goals" || intent === "display" || intent === "data") {
+      setDetailPage(intent);
+      localStorage.removeItem("mucipes-more-detail-intent");
+    }
+  }, []);
+
   type Settings = {
     units: "metric" | "imperial";
     weekStarts: "monday" | "sunday";
+    appearance: "light" | "dark" | "system";
+    energyUnit: "kcal" | "kj";
+    density: "comfortable" | "compact";
     showRir: boolean;
     restTimer: boolean;
     restSeconds: number;
-    workoutReminder: boolean;
-    weighInReminder: boolean;
-    mealReminder: boolean;
   };
 
   const defaultSettings: Settings = {
     units: "metric",
     weekStarts: "monday",
+    appearance: "light",
+    energyUnit: "kcal",
+    density: "comfortable",
     showRir: true,
     restTimer: true,
     restSeconds: 120,
-    workoutReminder: false,
-    weighInReminder: false,
-    mealReminder: false,
   };
 
-  const [tab, setTab] = useState<ProfileTab>("profile");
   const [settings, setSettings] = useState<Settings>(() => {
     if (typeof window === "undefined") return defaultSettings;
     try {
@@ -1193,121 +1963,330 @@ function ProfilePage({
   });
 
   useEffect(() => {
+    void loadCloudData<Settings>("settings").then((cloud) => {
+      if (cloud) {
+        setSettings((current) => ({ ...current, ...cloud }));
+      }
+    });
+  }, []);
+
+  function updateSettings(patch: Partial<Settings>) {
+    setSettings((current) => ({ ...current, ...patch }));
+    setSettingsSaved(false);
+  }
+
+  async function saveSettingsNow() {
     localStorage.setItem("bodypilot-settings", JSON.stringify(settings));
-  }, [settings]);
+    try {
+      await saveCloudData("settings", settings);
+      window.dispatchEvent(new Event("mucipes-settings-changed"));
+      setSettingsSaved(true);
+      window.setTimeout(() => setSettingsSaved(false), 1800);
+    } catch (error) {
+      console.error("Could not save CYG display settings:", error);
+      alert("Settings were saved on this device, but cloud sync failed.");
+    }
+  }
 
   function update<K extends keyof BodyProfile>(key: K, value: BodyProfile[K]) {
     setProfile((current) => ({ ...current, [key]: value }));
+    setProfileSaved(false);
   }
 
   function changeMode(mode: AppMode) {
     setAppMode(mode);
     localStorage.setItem("bodypilot-app-mode", mode);
+    void saveCloudData("app_mode", mode);
   }
 
-  function toggle(key: keyof Settings) {
-    setSettings((current) => ({ ...current, [key]: !current[key] }));
+  function saveProfileNow() {
+    localStorage.setItem("bodypilot-profile", JSON.stringify(profile));
+    void saveCloudData("profile", profile);
+    setProfileSaved(true);
+    window.setTimeout(() => setProfileSaved(false), 1800);
+  }
+
+  async function importBackup(file: File) {
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text) as { localData?: Record<string, unknown> };
+      if (!parsed || typeof parsed !== "object" || !parsed.localData || typeof parsed.localData !== "object") {
+        alert("This does not look like a CYG backup.");
+        return;
+      }
+      if (!window.confirm("Import this backup? Existing CYG local data with the same keys will be replaced.")) return;
+      for (const [key, value] of Object.entries(parsed.localData)) {
+        if (!["bodypilot-","mucipes-","cyg-"].some(prefix=>key.startsWith(prefix))) continue;
+        localStorage.setItem(key, JSON.stringify(value));
+      }
+      window.dispatchEvent(new Event("mucipes-settings-changed"));
+      alert("Backup imported. CYG will reload now.");
+      window.location.reload();
+    } catch (error) {
+      console.error("CYG backup import failed", error);
+      alert("Could not import this backup file.");
+    }
+  }
+
+  function exportBackup() {
+    const backup: Record<string, unknown> = {
+      exportedAt: new Date().toISOString(),
+      app: "CYG",
+      profile,
+      settings,
+      appMode,
+      trainingHistory,
+      nutritionHistory,
+    };
+    const localData: Record<string, unknown> = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !["bodypilot-","mucipes-","cyg-"].some(prefix=>key.startsWith(prefix))) continue;
+      const raw = localStorage.getItem(key);
+      try { localData[key] = raw ? JSON.parse(raw) : null; }
+      catch { localData[key] = raw; }
+    }
+    backup.localData = localData;
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `mucipes-backup-${getTodayDateInput()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   const goalLabel = profile.goal === "lose" ? "Lose fat" : profile.goal === "gain" ? "Build muscle" : "Maintain";
+  const openDetail = (page: "profile" | "goals" | "display" | "data" | "fasting") => {
+    setDetailPage(page);
+  };
+
+  const moreItems: Array<{ title: string; detail: string; icon: string; action: () => void }> = [
+    { title: "Account", detail: "Login, security and cloud sync", icon: "◎", action: () => setMorePage("account") },
+    { title: "Profile", detail: "Personal information and physical stats", icon: "○", action: () => openDetail("profile") },
+    { title: "Goals & Targets", detail: "Weight, nutrition and training goals", icon: "◉", action: () => openDetail("goals") },
+    { title: "Display & Appearance", detail: "Units and app preferences", icon: "▣", action: () => openDetail("display") },
+    { title: "Fasting", detail: "Timer, schedule, history and streaks", icon: "◷", action: () => openDetail("fasting") },
+    { title: "Looksmaxing", detail: planTier === "premium" ? "Premium appearance routine, scans and progress" : "Preview the Premium appearance module", icon: "✦", action: () => setActivePage("looksmaxing") },
+    { title: "Looksmaxing navigation", detail: "Toggle the Looksmaxing shortcut in the main navigation", icon: "＋", action: () => { const next = localStorage.getItem("cyg-pin-looksmaxing") !== "true"; localStorage.setItem("cyg-pin-looksmaxing", String(next)); window.dispatchEvent(new Event("cyg-navigation")); window.alert(next ? "Looksmaxing added to navigation" : "Looksmaxing available in More"); } },
+    { title: "Friends", detail: "Add friends and control what they can see", icon: "♧", action: () => setMorePage("friends") },
+    { title: "CYG Coach", detail: "Insights across training, nutrition and progress", icon: "✦", action: () => setMorePage("coach") },
+    { title: "Progress", detail: "Weight, strength, records and measurements", icon: "↗", action: () => setActivePage("progress") },
+    { title: "Calendar", detail: "Workout and nutrition history", icon: "□", action: () => setMorePage("calendar") },
+    { title: "Achievements", detail: "PRs, streaks and milestones", icon: "★", action: () => setMorePage("achievements") },
+    { title: "Notifications", detail: "Workout, nutrition and weigh-in reminders", icon: "◌", action: () => setMorePage("notifications") },
+    { title: "Connect Apps & Devices", detail: "Apple Health, Strava, Garmin and more", icon: "↻", action: () => setMorePage("devices") },
+    { title: "Data & Backup", detail: "Local data, export and cloud status", icon: "⇅", action: () => openDetail("data") },
+    { title: "Support", detail: "Help center and feedback", icon: "?", action: () => setMorePage("support") },
+    { title: "About", detail: "Version, privacy and CYG information", icon: "i", action: () => setMorePage("about") },
+  ];
+
+  if (morePage !== "main") {
+    return (
+      <div className="min-h-[70vh]">
+        <button onClick={() => setMorePage("main")} className="mb-6 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">← Back to More</button>
+        <div className="mb-6"><p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-600">CYG</p><h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950">{morePanelTitle(morePage)}</h1></div>
+        {morePage === "friends" ? (
+          <FriendsPanel />
+        ) : morePage === "coach" ? (
+          planTier === "premium" ? (
+            <CoachPage
+              goals={goals}
+              profile={profile}
+              nutritionHistory={nutritionHistory}
+              weightEntries={weightEntries}
+              trainingHistory={trainingHistory}
+              displaySettings={displaySettings}
+              onOpenPlan={() => setActivePage("plan")}
+            />
+          ) : (
+            <PremiumPaywall title="Advanced Coach is Premium" detail="Unlock deeper cross-app coaching across training, nutrition and progress. Your basic dashboard insights stay available on Free." onPreviewPremium={() => setPlanTier("premium")} />
+          )
+        ) : (
+          <MoreFullPage page={morePage} trainingHistory={trainingHistory} nutritionHistory={nutritionHistory} profile={profile} />
+        )}
+      </div>
+    );
+  }
+
+  if (detailPage !== "main") {
+    const titles = { profile: "Profile", goals: "Goals & Targets", display: "Display & Appearance", data: "Data & Backup", fasting: "Fasting" };
+    return (
+      <div className="min-h-[70vh]">
+        <button onClick={() => setDetailPage("main")} className="mb-6 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">← Back to More</button>
+        <div className="mb-6"><p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-600">CYG</p><h1 className="mt-2 text-4xl font-black tracking-tight">{titles[detailPage]}</h1></div>
+
+        {detailPage === "profile" && (
+          <div className="max-w-4xl space-y-5">
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="text-xl font-black">Personal & body data</h2>
+              <p className="mt-1 text-sm text-slate-500">Used for your targets, progress and guided plan.</p>
+              <div className="mt-6 grid gap-5 sm:grid-cols-2">
+                <PlanSelect label="Sex" value={profile.sex} onChange={(v) => update("sex", v as Sex)} options={[["male","Male"],["female","Female"]]} />
+                <PlanNumber label="Age" value={profile.age} unit="years" min={16} max={100} step={1} onChange={(v) => update("age", v)} />
+                <PlanNumber label="Height" value={round1(cmToDisplay(profile.height, settings.units))} unit={lengthUnitLabel(settings.units)} min={settings.units === "imperial" ? 47 : 120} max={settings.units === "imperial" ? 91 : 230} step={settings.units === "imperial" ? 0.5 : 1} onChange={(v) => update("height", round1(displayToCm(v, settings.units)))} />
+                <PlanNumber label="Current weight" value={round1(kgToDisplay(profile.weight, settings.units))} unit={weightUnitLabel(settings.units)} min={settings.units === "imperial" ? 77 : 35} max={settings.units === "imperial" ? 660 : 300} step={0.1} onChange={(v) => update("weight", round1(displayToKg(v, settings.units)))} />
+                <PlanNumber label="Target weight" value={round1(kgToDisplay(profile.targetWeight, settings.units))} unit={weightUnitLabel(settings.units)} min={settings.units === "imperial" ? 77 : 35} max={settings.units === "imperial" ? 660 : 300} step={0.1} onChange={(v) => update("targetWeight", round1(displayToKg(v, settings.units)))} />
+                <PlanSelect label="Activity" value={profile.activity} onChange={(v) => update("activity", v as ActivityLevel)} options={[["sedentary","Sedentary"],["light","Lightly active"],["moderate","Moderately active"],["very","Very active"],["athlete","Athlete / highly active"]]} />
+                <PlanSelect label="Experience" value={profile.experience} onChange={(v) => update("experience", v as BodyProfile["experience"])} options={[["beginner","Beginner"],["intermediate","Intermediate"],["advanced","Advanced"]]} />
+                <PlanSelect label="Equipment" value={profile.equipment} onChange={(v) => update("equipment", v as BodyProfile["equipment"])} options={[["full-gym","Full gym"],["home","Home gym / dumbbells"],["bodyweight","Bodyweight only"]]} />
+              </div>
+              <button onClick={saveProfileNow} className="mt-6 rounded-2xl bg-emerald-500 px-6 py-3 font-black text-white">{profileSaved ? "Saved ✓" : "Save profile"}</button>
+            </section>
+          </div>
+        )}
+
+        {detailPage === "goals" && (
+          <div className="max-w-4xl space-y-5">
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="text-xl font-black">Goal setup</h2>
+              <div className="mt-6 grid gap-5 sm:grid-cols-2">
+                <PlanSelect label="Primary goal" value={profile.goal} onChange={(v) => update("goal", v as FitnessGoal)} options={[["lose","Lose fat"],["maintain","Maintain"],["gain","Build muscle"]]} />
+                <PlanNumber label="Target weight" value={round1(kgToDisplay(profile.targetWeight, settings.units))} unit={weightUnitLabel(settings.units)} min={settings.units === "imperial" ? 77 : 35} max={settings.units === "imperial" ? 660 : 300} step={0.1} onChange={(v) => update("targetWeight", round1(displayToKg(v, settings.units)))} />
+                <PlanSelect label="Training days" value={String(profile.trainingDays)} onChange={(v) => update("trainingDays", Number(v))} options={[["2","2 days / week"],["3","3 days / week"],["4","4 days / week"],["5","5 days / week"],["6","6 days / week"]]} />
+                <PlanSelect label="Cardio goal" value={profile.cardioGoal} onChange={(v) => update("cardioGoal", v as BodyProfile["cardioGoal"])} options={[["none","No planned cardio"],["health","General health"],["fat-loss","Fat loss support"],["endurance","Improve endurance"],["performance","Sport performance"]]} />
+                <PlanSelect label="Cardio days" value={String(profile.cardioDays)} onChange={(v) => update("cardioDays", Number(v))} options={[["1","1 day / week"],["2","2 days / week"],["3","3 days / week"],["4","4 days / week"],["5","5 days / week"]]} />
+                <PlanSelect label="Preferred cardio" value={profile.cardioType} onChange={(v) => update("cardioType", v as BodyProfile["cardioType"])} options={[["walking","Walking"],["running","Running"],["cycling","Cycling"],["incline-walk","Incline treadmill"],["stairmaster","Stairmaster"],["rowing","Rowing"]]} />
+              </div>
+              <div className="mt-6 rounded-2xl bg-slate-50 p-4"><p className="text-sm font-black">App mode</p><div className="mt-3 flex gap-2"><button onClick={() => changeMode("guided")} className={`rounded-xl px-4 py-2 text-sm font-black ${appMode === "guided" ? "bg-emerald-500 text-white" : "bg-white border border-slate-200"}`}>Guided</button><button onClick={() => changeMode("self-managed")} className={`rounded-xl px-4 py-2 text-sm font-black ${appMode === "self-managed" ? "bg-emerald-500 text-white" : "bg-white border border-slate-200"}`}>Self-managed</button></div></div>
+              <button onClick={saveProfileNow} className="mt-6 rounded-2xl bg-emerald-500 px-6 py-3 font-black text-white">{profileSaved ? "Saved ✓" : "Save goals"}</button>
+            </section>
+          </div>
+        )}
+
+        {detailPage === "display" && (
+          <div className="max-w-3xl space-y-5">
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="text-xl font-black">Appearance</h2>
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">{(["light","dark","system"] as const).map(v => <button key={v} onClick={() => updateSettings({ appearance: v })} className={`rounded-2xl border p-4 text-left font-black capitalize ${settings.appearance===v?"border-emerald-500 bg-emerald-50":"border-slate-200"}`}>{v}<span className="mt-1 block text-xs font-normal text-slate-500">{v === "system" ? "Follow device" : `${v} interface`}</span></button>)}</div>
+            </section>
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <h2 className="text-xl font-black">Units & layout</h2>
+              <div className="mt-5 grid gap-5 sm:grid-cols-2">
+                <PlanSelect label="Measurement units" value={settings.units} onChange={(v) => updateSettings({ units: v as Settings["units"] })} options={[["metric","Metric (kg, cm)"],["imperial","Imperial (lb, in)"]]} />
+                <PlanSelect label="Energy" value={settings.energyUnit} onChange={(v) => updateSettings({ energyUnit: v as Settings["energyUnit"] })} options={[["kcal","Calories (kcal)"],["kj","Kilojoules (kJ)"]]} />
+                <PlanSelect label="Week starts" value={settings.weekStarts} onChange={(v) => updateSettings({ weekStarts: v as Settings["weekStarts"] })} options={[["monday","Monday"],["sunday","Sunday"]]} />
+                <PlanSelect label="Layout density" value={settings.density} onChange={(v) => updateSettings({ density: v as Settings["density"] })} options={[["comfortable","Comfortable"],["compact","Compact"]]} />
+              </div>
+              <div className="mt-5 divide-y divide-slate-100"><SettingToggle title="Show RIR" detail="Show reps-in-reserve controls during workouts." enabled={settings.showRir} onClick={()=>updateSettings({ showRir: !settings.showRir })}/><SettingToggle title="Rest timer" detail="Automatically use a rest timer between sets." enabled={settings.restTimer} onClick={()=>updateSettings({ restTimer: !settings.restTimer })}/></div>
+              <div className="mt-6 flex flex-wrap items-center gap-3">
+                <button onClick={() => void saveSettingsNow()} className="rounded-2xl bg-emerald-500 px-6 py-3 font-black text-white hover:bg-emerald-400">
+                  {settingsSaved ? "Settings saved ✓" : "Save settings"}
+                </button>
+                <p className="text-xs text-slate-500">Saves to this device and your CYG cloud account.</p>
+              </div>
+              <p className="mt-4 text-xs text-slate-500">Display preferences are shared across CYG and sync to your cloud account.</p>
+            </section>
+          </div>
+        )}
+
+        {detailPage === "fasting" && (
+          <div className="max-w-4xl">
+            <FastingTracker />
+          </div>
+        )}
+
+        {detailPage === "data" && (
+          <div className="max-w-3xl space-y-5">
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+              <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-widest text-emerald-600">Cloud status</p><h2 className="mt-2 text-2xl font-black">CYG data is synced</h2><p className="mt-2 text-sm leading-6 text-slate-500">Supabase cloud storage is active, with local browser storage kept as a fast cache and fallback.</p></div><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">Active</span></div>
+            </section>
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-xl font-black">Backup & restore</h2><p className="mt-2 text-sm text-slate-500">Export your CYG data or restore a previous CYG JSON backup. Import asks for confirmation before replacing matching local keys.</p><div className="mt-5 flex flex-wrap gap-3"><button onClick={exportBackup} className="rounded-2xl bg-emerald-500 px-5 py-3 font-black text-white">Download backup</button><label className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-5 py-3 font-black text-slate-700">Import backup<input type="file" accept="application/json,.json" className="hidden" onChange={(event)=>{const file=event.target.files?.[0]; if(file) void importBackup(file); event.currentTarget.value="";}} /></label></div></section>
+            <section className="grid gap-3 sm:grid-cols-3"><MoreStat label="Workouts" value={trainingHistory.length}/><MoreStat label="Nutrition days" value={nutritionHistory.length}/><MoreStat label="Storage" value="Cloud + local"/></section>
+            <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5"><p className="font-black text-amber-900">Safe migration</p><p className="mt-2 text-sm leading-6 text-amber-800">Internal keys still use bodypilot-* for compatibility. They are intentionally not renamed yet so existing user data is not lost.</p></section>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <>
       <div className="flex flex-wrap items-end justify-between gap-5">
-        <div>
-          <p className="text-sm font-semibold tracking-widest text-emerald-600">PROFILE</p>
-          <h1 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">Your BodyPilot</h1>
-          <p className="mt-3 max-w-2xl text-slate-600">Manage your profile, preferences and app settings in one place.</p>
-        </div>
-        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-emerald-100 font-black text-emerald-700">BP</div>
-          <div><p className="font-bold">BodyPilot profile</p><p className="text-xs text-slate-500">{goalLabel} · {profile.trainingDays} days/week</p></div>
-        </div>
+        <div><p className="text-sm font-semibold tracking-widest text-emerald-600">MORE</p><h1 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">More</h1><p className="mt-3 max-w-2xl text-slate-600">Profile, goals, calendar, achievements, devices, settings and your data.</p></div>
+        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm"><div className="flex h-11 w-11 items-center justify-center rounded-full bg-emerald-100 font-black text-emerald-700">CYG</div><div><div className="flex items-center gap-2"><p className="font-bold">CYG profile</p><span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${planTier === "premium" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{planTier}</span></div><p className="text-xs text-slate-500">{goalLabel} · {profile.trainingDays} days/week</p></div></div>
       </div>
-
-      <div className="mt-8 inline-flex rounded-2xl border border-slate-200 bg-white p-1 shadow-sm">
-        {([['profile','Profile'],['preferences','Preferences'],['settings','Settings']] as const).map(([value,label]) => (
-          <button key={value} onClick={() => setTab(value)} className={`rounded-xl px-5 py-3 text-sm font-semibold transition ${tab === value ? 'bg-emerald-500 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>{label}</button>
-        ))}
-      </div>
-
-      {tab === "profile" && (
-        <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">Personal details</p>
-          <h2 className="mt-2 text-2xl font-bold">Body & goal</h2>
-          <p className="mt-2 text-sm text-slate-500">Saved automatically and used by your BodyPilot plan.</p>
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <PlanSelect label="Sex" value={profile.sex} onChange={(v) => update("sex", v as Sex)} options={[["male","Male"],["female","Female"]]} />
-            <PlanNumber label="Age" value={profile.age} unit="years" min={18} max={100} step={1} onChange={(v) => update("age",v)} />
-            <PlanNumber label="Height" value={profile.height} unit="cm" min={120} max={230} step={1} onChange={(v) => update("height",v)} />
-            <PlanNumber label="Current weight" value={profile.weight} unit="kg" min={35} max={300} step={0.1} onChange={(v) => update("weight",v)} />
-            <PlanNumber label="Target weight" value={profile.targetWeight} unit="kg" min={35} max={300} step={0.1} onChange={(v) => update("targetWeight",v)} />
-            <PlanSelect label="Goal" value={profile.goal} onChange={(v) => update("goal",v as FitnessGoal)} options={[["lose","Lose fat"],["maintain","Maintain"],["gain","Build muscle"]]} />
-            <PlanSelect label="Activity" value={profile.activity} onChange={(v) => update("activity",v as ActivityLevel)} options={[["sedentary","Sedentary"],["light","Lightly active"],["moderate","Moderately active"],["very","Very active"],["athlete","Athlete / highly active"]]} />
+      <section className="mt-7">
+        <div className="mb-5 rounded-[28px] border border-emerald-200 bg-emerald-50 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div><p className="text-xs font-black uppercase tracking-widest text-emerald-700">Developer plan preview</p><p className="mt-1 text-sm font-semibold text-slate-700">See CYG exactly as a Free or Premium user. This is a preview switch, not billing.</p></div>
+            <div className="flex rounded-2xl bg-white p-1 shadow-sm">
+              {(["free","premium"] as const).map((tier) => <button key={tier} type="button" onClick={() => setPlanTier(tier)} className={`rounded-xl px-4 py-2 text-sm font-black capitalize ${planTier === tier ? "bg-emerald-500 text-white" : "text-slate-500"}`}>{tier}</button>)}
+            </div>
           </div>
-        </section>
-      )}
-
-      {tab === "preferences" && (
-        <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">Preferences</p>
-          <h2 className="mt-2 text-2xl font-bold">Training & cardio</h2>
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <PlanSelect label="Training days" value={String(profile.trainingDays)} onChange={(v) => update("trainingDays",Number(v))} options={[["2","2 days / week"],["3","3 days / week"],["4","4 days / week"],["5","5 days / week"],["6","6 days / week"]]} />
-            <PlanSelect label="Experience" value={profile.experience} onChange={(v) => update("experience",v as BodyProfile["experience"])} options={[["beginner","Beginner"],["intermediate","Intermediate"],["advanced","Advanced"]]} />
-            <PlanSelect label="Equipment" value={profile.equipment} onChange={(v) => update("equipment",v as BodyProfile["equipment"])} options={[["full-gym","Full gym"],["home","Home gym / dumbbells"],["bodyweight","Bodyweight only"]]} />
-            <PlanSelect label="Cardio goal" value={profile.cardioGoal} onChange={(v) => update("cardioGoal",v as BodyProfile["cardioGoal"])} options={[["none","No planned cardio"],["health","General health"],["fat-loss","Fat loss support"],["endurance","Improve endurance"],["performance","Sport performance"]]} />
-            {profile.cardioGoal !== "none" && <>
-              <PlanSelect label="Cardio days" value={String(profile.cardioDays)} onChange={(v) => update("cardioDays",Number(v))} options={[["1","1 day / week"],["2","2 days / week"],["3","3 days / week"],["4","4 days / week"],["5","5 days / week"]]} />
-              <PlanSelect label="Preferred cardio" value={profile.cardioType} onChange={(v) => update("cardioType",v as BodyProfile["cardioType"])} options={[["walking","Walking"],["running","Running"],["cycling","Cycling"],["incline-walk","Incline treadmill"],["stairmaster","Stairmaster"],["rowing","Rowing"]]} />
-            </>}
-          </div>
-        </section>
-      )}
-
-      {tab === "settings" && <div className="mt-6 space-y-6">
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">General</p>
-          <h2 className="mt-2 text-2xl font-bold">App settings</h2>
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <PlanSelect label="Units" value={settings.units} onChange={(v) => setSettings(c => ({...c, units:v as Settings['units']}))} options={[["metric","Metric (kg, cm)"],["imperial","Imperial (lb, ft/in)"]]} />
-            <PlanSelect label="Week starts on" value={settings.weekStarts} onChange={(v) => setSettings(c => ({...c, weekStarts:v as Settings['weekStarts']}))} options={[["monday","Monday"],["sunday","Sunday"]]} />
-          </div>
-          <p className="mt-4 text-xs text-slate-400">Your preferences are saved automatically on this device.</p>
-        </section>
-
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">Mode</p>
-          <h2 className="mt-2 text-2xl font-bold">How BodyPilot works for you</h2>
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {[['guided','BodyPilot guides me','Personalized plan and guidance.'],['self-managed','I’ll manage it myself','Use BodyPilot mainly as a powerful tracker.']].map(([mode,title,detail]) => <button key={mode} onClick={() => changeMode(mode as AppMode)} className={`rounded-2xl border p-5 text-left transition ${appMode === mode ? 'border-emerald-500 bg-emerald-50 ring-1 ring-emerald-500/20' : 'border-slate-200 bg-slate-50 hover:border-slate-300'}`}><p className="font-bold">{title}</p><p className="mt-2 text-sm text-slate-500">{detail}</p></button>)}
-          </div>
-        </section>
-
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">Training</p>
-          <h2 className="mt-2 text-2xl font-bold">Workout settings</h2>
-          <div className="mt-5 divide-y divide-slate-100">
-            <SettingToggle title="Show RIR" detail="Show reps in reserve when logging sets." enabled={settings.showRir} onClick={() => toggle('showRir')} />
-            <SettingToggle title="Rest timer" detail="Use a rest timer between working sets." enabled={settings.restTimer} onClick={() => toggle('restTimer')} />
-            {settings.restTimer && <div className="flex items-center justify-between gap-4 py-4"><div><p className="font-semibold">Default rest time</p><p className="text-sm text-slate-500">Default timer after a completed set.</p></div><select value={settings.restSeconds} onChange={(e) => setSettings(c => ({...c,restSeconds:Number(e.target.value)}))} className="rounded-xl border border-slate-300 bg-white px-4 py-3"><option value={60}>1:00</option><option value={90}>1:30</option><option value={120}>2:00</option><option value={180}>3:00</option><option value={240}>4:00</option></select></div>}
-          </div>
-        </section>
-
-        <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm sm:p-7">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">Reminders</p>
-          <h2 className="mt-2 text-2xl font-bold">Notifications</h2>
-          <p className="mt-2 text-sm text-slate-500">Choose which reminders you want. Browser push delivery will be connected later.</p>
-          <div className="mt-5 divide-y divide-slate-100">
-            <SettingToggle title="Workout reminders" detail="Remind me about planned workouts." enabled={settings.workoutReminder} onClick={() => toggle('workoutReminder')} />
-            <SettingToggle title="Weigh-in reminder" detail="Remind me to log body weight." enabled={settings.weighInReminder} onClick={() => toggle('weighInReminder')} />
-            <SettingToggle title="Meal logging reminder" detail="Remind me when nutrition has not been logged." enabled={settings.mealReminder} onClick={() => toggle('mealReminder')} />
-          </div>
-        </section>
-
-      </div>}
+        </div>
+        <div className="mb-5 rounded-[28px] bg-slate-100 px-5 py-4"><div className="flex items-center gap-3"><span className="text-xl text-slate-500">⌕</span><input value={moreSearch} onChange={(e)=>setMoreSearch(e.target.value)} placeholder="Search settings..." className="w-full bg-transparent text-base font-medium outline-none placeholder:text-slate-400"/></div></div>
+        <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">{moreItems.filter(item => `${item.title} ${item.detail}`.toLowerCase().includes(moreSearch.toLowerCase())).map((item,index,arr)=><button key={item.title} onClick={item.action} className={`flex w-full items-center gap-4 px-5 py-4 text-left transition hover:bg-slate-50 ${index<arr.length-1?"border-b border-slate-100":""}`}><span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-slate-100 text-lg font-black text-slate-800">{item.icon}</span><span className="min-w-0 flex-1"><span className="block font-black text-slate-950">{item.title}</span><span className="mt-0.5 block text-xs text-slate-500">{item.detail}</span></span><span className="text-2xl font-light text-slate-400">›</span></button>)}</div>
+      </section>
     </>
   );
+}
+
+function FastingTracker() {
+  type FastingState = { active: boolean; startedAt: string | null; targetHours: number; history: Array<{ startedAt: string; endedAt: string; hours: number }> };
+  const defaults: FastingState = { active: false, startedAt: null, targetHours: 16, history: [] };
+  const [state, setState] = useState<FastingState>(() => {
+    if (typeof window === "undefined") return defaults;
+    try { return { ...defaults, ...JSON.parse(localStorage.getItem("bodypilot-fasting") || "{}") }; } catch { return defaults; }
+  });
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    void loadCloudData<FastingState>("fasting").then((cloud) => { if (cloud) setState((v) => ({ ...v, ...cloud })); });
+  }, []);
+  useEffect(() => {
+    localStorage.setItem("bodypilot-fasting", JSON.stringify(state));
+    window.dispatchEvent(new Event("mucipes-fasting-changed"));
+    void saveCloudData("fasting", state);
+  }, [state]);
+  useEffect(() => {
+    if (!state.active) return;
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [state.active]);
+
+  const elapsedMs = state.active && state.startedAt ? Math.max(0, now - new Date(state.startedAt).getTime()) : 0;
+  const elapsedHours = elapsedMs / 3600000;
+  const pct = Math.min(100, (elapsedHours / Math.max(1, state.targetHours)) * 100);
+  const h = Math.floor(elapsedMs / 3600000);
+  const m = Math.floor((elapsedMs % 3600000) / 60000);
+  const sec = Math.floor((elapsedMs % 60000) / 1000);
+
+  function start() { setNow(Date.now()); setState((v) => ({ ...v, active: true, startedAt: new Date().toISOString() })); }
+  function finish() {
+    if (!state.startedAt) return;
+    const endedAt = new Date();
+    const hours = Math.round(((endedAt.getTime() - new Date(state.startedAt).getTime()) / 3600000) * 10) / 10;
+    setState((v) => ({ ...v, active: false, startedAt: null, history: [{ startedAt: state.startedAt!, endedAt: endedAt.toISOString(), hours }, ...v.history].slice(0, 60) }));
+  }
+
+  const completed = state.history.filter(x => x.hours >= state.targetHours).length;
+  const avg = state.history.length ? Math.round((state.history.reduce((sum,x)=>sum+x.hours,0)/state.history.length)*10)/10 : 0;
+  const longest = state.history.length ? Math.max(...state.history.map(x=>x.hours)) : 0;
+  let streak = 0;
+  for (const x of state.history) { if (x.hours >= state.targetHours) streak += 1; else break; }
+  const endAt = state.active && state.startedAt ? new Date(new Date(state.startedAt).getTime()+state.targetHours*3600000) : null;
+
+  return <div className="space-y-5">
+    <section className="rounded-[28px] border border-emerald-200 bg-white p-6 shadow-sm">
+    <div><p className="text-xs font-black uppercase tracking-widest text-emerald-600">Current fast</p><h3 className="mt-1 text-3xl font-black">{state.active ? `${h}h ${String(m).padStart(2,"0")}m ${String(sec).padStart(2,"0")}s` : `${state.targetHours} hour target`}</h3><p className="mt-1 text-sm text-slate-500">Cloud-synced fasting timer. {endAt ? `Target ends ${endAt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}.` : 'Choose a target and start when you are ready.'}</p></div>
+    <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{width:`${pct}%`}} /></div>
+    {!state.active && <div className="mt-5 flex flex-wrap gap-2">{[12,14,16,18,20].map(hours=><button key={hours} onClick={()=>setState(v=>({...v,targetHours:hours}))} className={`rounded-xl px-4 py-2 text-sm font-black ${state.targetHours===hours?"bg-emerald-500 text-white":"bg-slate-100 text-slate-700"}`}>{hours}h</button>)}</div>}
+    <button onClick={state.active ? finish : start} className={`mt-5 w-full rounded-2xl py-4 font-black text-white ${state.active?"bg-rose-500":"bg-emerald-500"}`}>{state.active ? "End fast" : "Start fast"}</button>
+    </section>
+    <section className="grid gap-3 sm:grid-cols-4">
+      <MoreStat label="Current streak" value={`${streak}`} />
+      <MoreStat label="Completed" value={`${completed}`} />
+      <MoreStat label="Average" value={`${avg} h`} />
+      <MoreStat label="Longest" value={`${longest} h`} />
+    </section>
+    <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
+      <div className="flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-widest text-slate-400">History</p><h3 className="mt-1 text-xl font-black">Recent fasts</h3></div><span className="text-xs font-bold text-slate-400">{state.history.length} total</span></div>
+      {state.history.length ? <div className="mt-4 space-y-2">{state.history.slice(0,12).map((x,i)=><div key={`${x.endedAt}-${i}`} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 text-sm"><div><p className="font-bold">{new Date(x.endedAt).toLocaleDateString()}</p><p className="text-xs text-slate-400">{new Date(x.startedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} → {new Date(x.endedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</p></div><span className={`font-black ${x.hours>=state.targetHours?'text-emerald-600':'text-slate-600'}`}>{x.hours} h</span></div>)}</div> : <div className="mt-4 rounded-2xl bg-slate-50 p-5 text-sm text-slate-500">Your completed fasts will appear here.</div>}
+    </section>
+  </div>;
 }
 
 function SettingToggle({ title, detail, enabled, onClick }: { title: string; detail: string; enabled: boolean; onClick: () => void }) {
@@ -1325,6 +2304,7 @@ function Dashboard({
   trainingHistory,
   bodyProfile,
   nutritionHistory,
+  displaySettings,
   setActivePage,
 }: {
   goals: Goals;
@@ -1337,636 +2317,340 @@ function Dashboard({
   trainingHistory: TrainingHistoryEntry[];
   bodyProfile: BodyProfile;
   nutritionHistory: NutritionDay[];
+  displaySettings: ReturnType<typeof readMucipesDisplaySettings>;
   setActivePage: (page: Page) => void;
 }) {
+  // Keep the first server render and the first client render identical.
+  // Browser-only state is loaded after hydration to avoid SSR/localStorage mismatches.
+  const [activeWorkout, setActiveWorkout] = useState<HomeActiveWorkout | null>(null);
+  const [activeFast, setActiveFast] = useState<HomeFastingState | null>(null);
+  const [liveNow, setLiveNow] = useState(0);
+
+  useEffect(() => {
+    const syncActive = () => {
+      setActiveWorkout(readLocalJson<HomeActiveWorkout>("bodypilot-active-workout"));
+      setActiveFast(readLocalJson<HomeFastingState>("bodypilot-fasting"));
+      setLiveNow(Date.now());
+    };
+    syncActive();
+    window.addEventListener("mucipes-workout-changed", syncActive);
+    window.addEventListener("mucipes-fasting-changed", syncActive);
+    window.addEventListener("storage", syncActive);
+    return () => {
+      window.removeEventListener("mucipes-workout-changed", syncActive);
+      window.removeEventListener("mucipes-fasting-changed", syncActive);
+      window.removeEventListener("storage", syncActive);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activeWorkout && !activeFast?.active) return;
+    const id = window.setInterval(() => setLiveNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [activeWorkout, activeFast?.active]);
+
   const sortedWeights = [...weightEntries].sort(
     (a, b) => getWeightEntryTime(a) - getWeightEntryTime(b)
   );
-
-  const latestWeight =
-    sortedWeights.length > 0
-      ? sortedWeights[sortedWeights.length - 1]
-      : null;
-
-  const previousWeight =
-    sortedWeights.length > 1
-      ? sortedWeights[sortedWeights.length - 2]
-      : null;
-
+  const latestWeight = sortedWeights.at(-1);
+  const olderWeight = sortedWeights.length > 1 ? sortedWeights.at(-2) : undefined;
   const weightChange =
-    latestWeight && previousWeight
-      ? round1(latestWeight.weight - previousWeight.weight)
+    latestWeight && olderWeight
+      ? round1(latestWeight.weight - olderWeight.weight)
       : null;
 
-  const safeTrainingHistory = Array.isArray(trainingHistory)
-    ? trainingHistory
-    : [];
-
-  const latestWorkout = [...safeTrainingHistory].sort(
-    (a, b) =>
-      new Date(b.finishedAt).getTime() -
-      new Date(a.finishedAt).getTime()
-  )[0];
-
-  const totalCompletedSets = safeTrainingHistory.reduce(
-    (total, workout) =>
-      total +
-      workout.exercises.reduce(
-        (exerciseTotal, exercise) =>
-          exerciseTotal +
-          exercise.sets.filter(
-            (set) =>
-              set.completed ||
-              set.weight > 0 ||
-              set.reps > 0
-          ).length,
-        0
-      ),
-    0
+  const sortedWorkouts = [...(trainingHistory || [])].sort(
+    (a, b) => new Date(b.finishedAt).getTime() - new Date(a.finishedAt).getTime()
   );
+  const lastWorkout = sortedWorkouts[0];
 
-  const progressionSuggestion = useMemo(() => {
-    const sessions = [...safeTrainingHistory]
-      .sort(
-        (a, b) =>
-          new Date(b.finishedAt).getTime() -
-          new Date(a.finishedAt).getTime()
-      );
-
-    for (const workout of sessions) {
-      for (const exercise of workout.exercises) {
-        const bestSet = exercise.sets
-          .filter(
-            (set) =>
-              (set.completed || set.reps > 0) &&
-              set.weight > 0 &&
-              set.reps > 0
-          )
-          .sort(
-            (a, b) =>
-              b.weight * b.reps - a.weight * a.reps
-          )[0];
-
-        if (bestSet) {
-          const nextReps =
-            bestSet.reps >= 12
-              ? bestSet.reps
-              : bestSet.reps + 1;
-
-          const nextWeight =
-            bestSet.reps >= 12
-              ? round1(bestSet.weight + 2.5)
-              : bestSet.weight;
-
-          return {
-            exercise: exercise.exerciseName,
-            previous: `${bestSet.weight} kg × ${bestSet.reps}`,
-            next: `${nextWeight} kg × ${nextReps}`,
-          };
-        }
-      }
-    }
-
-    return null;
-  }, [safeTrainingHistory]);
-
-  const caloriePercent =
-    goals.calories > 0
-      ? Math.round((caloriesEaten / goals.calories) * 100)
-      : 0;
-
-  const proteinRemaining = Math.max(
-    0,
-    goals.protein - proteinEaten
+  const recentDates = new Set(
+    sortedWorkouts.slice(0, 30).map((w) => w.finishedAt.slice(0, 10))
   );
+  let streak = 0;
+  const cursor = new Date();
+  for (let i = 0; i < 30; i++) {
+    const key = `${cursor.getFullYear()}-${String(cursor.getMonth()+1).padStart(2,"0")}-${String(cursor.getDate()).padStart(2,"0")}`;
+    if (recentDates.has(key)) streak++;
+    else if (i > 0) break;
+    cursor.setDate(cursor.getDate() - 1);
+  }
 
-  const nutritionStatus =
-    caloriesRemaining > 500
-      ? "You still have room to build the rest of your day."
-      : caloriesRemaining >= 0
-        ? "You are close to today's calorie target."
-        : "You are currently above today's calorie target.";
-
-  const nextAction =
-    caloriesRemaining > 0 && proteinRemaining > 0
-      ? `Aim for roughly ${Math.round(
-          caloriesRemaining
-        )} kcal and ${Math.round(
-          proteinRemaining
-        )} g protein across your remaining meals.`
+  const proteinLeft = Math.max(0, Math.round(goals.protein - proteinEaten));
+  const insight =
+    proteinLeft > 0
+      ? `You are ${proteinLeft} g below your protein target.`
       : caloriesRemaining > 0
-        ? `You have about ${Math.round(
-            caloriesRemaining
-          )} kcal remaining today.`
-        : "Nutrition is logged for today. Focus on completing your training and recovery plan.";
+        ? `${formatEnergy(Math.max(0, caloriesRemaining), displaySettings.energyUnit)} remaining today.`
+        : "Daily nutrition targets are on track.";
 
-  const dashboardTrainingPlan = useMemo(
-    () => buildTrainingPlan(bodyProfile),
-    [bodyProfile]
-  );
+  const dateLabel = new Intl.DateTimeFormat("en", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  }).format(new Date());
 
-  const dashboardWeeklySchedule = useMemo(
-    () =>
-      buildWeeklySchedule(
-        bodyProfile,
-        dashboardTrainingPlan
-      ),
-    [bodyProfile, dashboardTrainingPlan]
-  );
-
-  const todayIndex = (new Date().getDay() + 6) % 7;
-  const todayPlan =
-    dashboardWeeklySchedule[todayIndex];
-
-  const completedNutritionDays = nutritionHistory
-    .filter((day) => day.date !== getTodayDateInput())
-    .slice(-14);
-
-  const adherenceDays = completedNutritionDays.filter(
-    (day) =>
-      goals.calories > 0 &&
-      Math.abs(day.calories - goals.calories) <=
-        goals.calories * 0.1
+  const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+  const weeklyWorkouts = sortedWorkouts.filter(
+    (workout) => new Date(workout.finishedAt).getTime() >= sevenDaysAgo
   ).length;
+  const recentNutrition = [...nutritionHistory]
+    .filter((day) => new Date(day.date).getTime() >= sevenDaysAgo)
+    .slice(-7);
+  const nutritionAdherence = recentNutrition.length
+    ? Math.round(
+        recentNutrition.reduce((sum, day) => {
+          const distance = Math.abs(day.calories - goals.calories);
+          return sum + Math.max(0, 100 - (distance / Math.max(1, goals.calories)) * 100);
+        }, 0) / recentNutrition.length
+      )
+    : 0;
+  const hoursSinceWorkout = lastWorkout
+    ? (Date.now() - new Date(lastWorkout.finishedAt).getTime()) / 3600000
+    : 72;
+  const recoveryScore = Math.max(
+    35,
+    Math.min(100, Math.round(55 + Math.min(30, hoursSinceWorkout / 2) + Math.min(15, nutritionAdherence / 7)))
+  );
+  const recoveryLabel = recoveryScore >= 80 ? "Ready" : recoveryScore >= 60 ? "Moderate" : "Recover";
 
-  const adherencePercent =
-    completedNutritionDays.length > 0
-      ? Math.round(
-          (adherenceDays / completedNutritionDays.length) *
-            100
-        )
-      : null;
+  const avgProtein7 = recentNutrition.length
+    ? Math.round(recentNutrition.reduce((sum, day) => sum + day.protein, 0) / recentNutrition.length)
+    : null;
 
-  const dashboardAdaptive =
-    calculateAdaptiveAdjustment(
-      weightEntries,
-      bodyProfile,
-      goals
-    );
+  const weekWeights = sortedWeights.filter((entry) => getWeightEntryTime(entry) >= sevenDaysAgo);
+  const weekWeightChange = weekWeights.length >= 2
+    ? round1(weekWeights.at(-1)!.weight - weekWeights[0].weight)
+    : null;
 
-  const planStatus = dashboardAdaptive.ready
-    ? dashboardAdaptive.suggestedCalories !== null &&
-      dashboardAdaptive.suggestedCalories !== goals.calories
-      ? "Adjustment available"
-      : "On track"
-    : "Collecting data";
+  const bestBefore = new Map<string, number>();
+  let weeklyPrs = 0;
+  [...trainingHistory]
+    .sort((a, b) => new Date(a.finishedAt).getTime() - new Date(b.finishedAt).getTime())
+    .forEach((workout) => {
+      const isThisWeek = new Date(workout.finishedAt).getTime() >= sevenDaysAgo;
+      workout.exercises.forEach((exercise) => {
+        exercise.sets.forEach((set) => {
+          if (set.weight <= 0 || set.reps <= 0) return;
+          const e1rm = set.weight * (1 + set.reps / 30);
+          const previousBest = bestBefore.get(exercise.exerciseId) ?? 0;
+          if (isThisWeek && previousBest > 0 && e1rm > previousBest * 1.002) weeklyPrs += 1;
+          if (e1rm > previousBest) bestBefore.set(exercise.exerciseId, e1rm);
+        });
+      });
+    });
+
+  const hour = new Date().getHours();
+  const todayKey = getTodayDateInput();
+  const weighedToday = sortedWeights.some((entry) => entry.date.slice(0, 10) === todayKey);
+  const smartFocus = !weighedToday && hour < 12
+    ? { eyebrow: "Morning check-in", title: "Log your body weight", detail: "A quick weigh-in makes the weekly trend more useful.", page: "progress" as Page, action: "Add weigh-in" }
+    : weeklyWorkouts < bodyProfile.trainingDays && hoursSinceWorkout >= 20 && hour >= 10 && hour < 20
+      ? { eyebrow: "Next best action", title: "Training fits today", detail: `${weeklyWorkouts} of ${bodyProfile.trainingDays} planned sessions are logged this week.`, page: "training" as Page, action: "Open workout" }
+      : hour >= 17 && caloriesRemaining > 150
+        ? { eyebrow: "Evening focus", title: `${formatEnergy(Math.max(0, caloriesRemaining), displaySettings.energyUnit)} remaining`, detail: proteinLeft > 0 ? `${proteinLeft} g protein is still open today.` : "Protein is covered; finish the day close to your energy target.", page: "nutrition" as Page, action: "Open nutrition" }
+        : { eyebrow: "Today", title: recoveryScore >= 80 ? "You're set up well" : "Keep today simple", detail: insight, page: proteinLeft > 0 ? "nutrition" as Page : "training" as Page, action: proteinLeft > 0 ? "Open nutrition" : "Open workout" };
 
   return (
-    <>
-      <section className="mb-6 grid gap-4 md:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
-          <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
-            Plan status
-          </p>
-          <p className="mt-2 text-xl font-bold">{planStatus}</p>
-          <button
-            onClick={() => setActivePage("plan")}
-            className="mt-3 text-sm font-semibold text-emerald-600 hover:text-emerald-500"
-          >
-            Open Get Fit Plan
-          </button>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
-          <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
-            Nutrition adherence
-          </p>
-          <p className="mt-2 text-xl font-bold">
-            {adherencePercent === null
-              ? "Collecting data"
-              : `${adherencePercent}%`}
-          </p>
-          <p className="mt-1 text-xs text-slate-400">
-            Days within ±10% of calorie target
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
-          <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
-            Goal
-          </p>
-          <p className="mt-2 text-xl font-bold">
-            {bodyProfile.goal === "lose"
-              ? "Lose fat"
-              : bodyProfile.goal === "gain"
-                ? "Build muscle"
-                : "Maintain"}
-          </p>
-          <p className="mt-1 text-xs text-slate-400">
-            Target weight: {bodyProfile.targetWeight} kg
-          </p>
-        </div>
-      </section>
-
-      <div className="flex flex-wrap items-end justify-between gap-5">
+    <div className="space-y-6">
+      <section className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-sm font-semibold tracking-widest text-emerald-600">
-            BODYpilot TODAY
+          <p className="text-sm font-bold uppercase tracking-[0.18em] text-emerald-600">
+            Today · {dateLabel}
           </p>
-
-          <h1 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">
-            Your plan for today
+          <h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950 sm:text-5xl">
+            Today
           </h1>
-
-          <p className="mt-3 max-w-2xl text-slate-600">
-            One view of what you have eaten, how training is going
-            and what to focus on next.
+          <p className="mt-2 text-slate-500">
+            Your training, nutrition and progress — today.
           </p>
         </div>
-
-        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-5 py-3">
-          <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600">
-            Daily completion
-          </p>
-          <p className="mt-1 text-2xl font-black">
-            {Math.max(0, Math.min(caloriePercent, 100))}%
-          </p>
-        </div>
-      </div>
-
-      <section className="mt-8 overflow-hidden rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-white via-white to-emerald-50 p-7 sm:p-8">
-        <div className="grid gap-7 lg:grid-cols-[1.35fr_0.65fr] lg:items-center">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600">
-              BodyPilot recommendation
-            </p>
-
-            <h2 className="mt-3 text-2xl font-bold sm:text-3xl">
-              {nutritionStatus}
-            </h2>
-
-            <p className="mt-3 max-w-2xl leading-7 text-slate-600">
-              {nextAction}
-            </p>
-
-            <div className="mt-6 flex flex-wrap gap-3">
-              <button
-                onClick={() => setActivePage("nutrition")}
-                className="rounded-xl bg-emerald-500 px-5 py-3 font-semibold text-black transition hover:bg-emerald-400"
-              >
-                Open nutrition
-              </button>
-
-              <button
-                onClick={() => setActivePage("training")}
-                className="rounded-xl border border-slate-300 bg-white px-5 py-3 font-semibold transition hover:border-slate-400 hover:bg-white"
-              >
-                Open training
-              </button>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-slate-200 bg-white p-6">
-            <p className="text-sm text-slate-500">Calories remaining</p>
-            <p
-              className={`mt-2 text-5xl font-black ${
-                caloriesRemaining >= 0
-                  ? "text-slate-950"
-                  : "text-red-400"
-              }`}
-            >
-              {Math.abs(Math.round(caloriesRemaining))}
-            </p>
-            <p className="mt-1 text-sm text-slate-500">
-              {caloriesRemaining >= 0
-                ? "kcal left today"
-                : "kcal over target"}
-            </p>
-
-            <ProgressBar
-              value={caloriesEaten}
-              goal={goals.calories}
-            />
-          </div>
+        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
+          <span className="text-slate-500">Goal </span>
+          <span className="font-black text-slate-900">
+            {bodyProfile.goal === "lose" ? "Lose fat" : bodyProfile.goal === "gain" ? "Build muscle" : "Maintain"}
+          </span>
         </div>
       </section>
 
-      <div className="mt-6 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <DashboardMetric
-          label="Calories"
-          value={`${Math.round(caloriesEaten)}`}
-          detail={`/ ${goals.calories} kcal`}
-          progress={caloriesEaten}
-          goal={goals.calories}
-        />
+      <button onClick={() => setActivePage(smartFocus.page)} className="flex w-full flex-wrap items-center justify-between gap-4 rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-left transition hover:border-emerald-300">
+        <div className="min-w-0">
+          <p className="text-xs font-black uppercase tracking-widest text-emerald-700">{smartFocus.eyebrow}</p>
+          <p className="mt-1 text-xl font-black text-slate-950">{smartFocus.title}</p>
+          <p className="mt-1 text-sm text-slate-600">{smartFocus.detail}</p>
+        </div>
+        <span className="rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-white">{smartFocus.action} →</span>
+      </button>
 
-        <DashboardMetric
-          label="Protein"
-          value={`${round1(proteinEaten)} g`}
-          detail={`/ ${goals.protein} g`}
-          progress={proteinEaten}
-          goal={goals.protein}
-        />
-
-        <DashboardMetric
-          label="Carbs"
-          value={`${round1(carbsEaten)} g`}
-          detail={`/ ${goals.carbs} g`}
-          progress={carbsEaten}
-          goal={goals.carbs}
-        />
-
-        <DashboardMetric
-          label="Fat"
-          value={`${round1(fatEaten)} g`}
-          detail={`/ ${goals.fat} g`}
-          progress={fatEaten}
-          goal={goals.fat}
-        />
-      </div>
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <section className="rounded-3xl border border-slate-200 bg-white p-7">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600">
-                Training
-              </p>
-              <h2 className="mt-2 text-2xl font-bold">
-                {latestWorkout
-                  ? "Keep the momentum"
-                  : "Ready for your first session"}
-              </h2>
-            </div>
-
-            <div className="rounded-xl bg-slate-50 px-3 py-2 text-right">
-              <p className="text-lg font-bold">
-                {safeTrainingHistory.length}
-              </p>
-              <p className="text-[11px] text-slate-500">
-                workouts
-              </p>
-            </div>
-          </div>
-
-          {latestWorkout ? (
-            <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+      {(activeWorkout || activeFast?.active) && (
+        <section className="grid gap-3 lg:grid-cols-2">
+          {activeWorkout && (
+            <button onClick={() => setActivePage("training")} className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-left shadow-sm transition hover:border-emerald-300">
+              <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="font-semibold">
-                    {latestWorkout.name}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Last workout ·{" "}
-                    {formatProgressDate(latestWorkout.finishedAt)}
-                  </p>
+                  <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Workout in progress</p>
+                  <h2 className="mt-1 text-xl font-black text-slate-950">{activeWorkout.name || "Workout"}</h2>
+                  <p className="mt-1 text-sm text-slate-600">{activeWorkout.exercises?.length ?? 0} exercises · {activeWorkout.exercises?.reduce((sum, exercise) => sum + (exercise.sets?.filter((set) => set.completed).length ?? 0), 0) ?? 0} completed sets</p>
                 </div>
-
-                <p className="text-sm text-slate-600">
-                  {latestWorkout.exercises.length} exercises
-                </p>
+                <span className="rounded-xl bg-white px-3 py-2 text-sm font-black text-emerald-700 shadow-sm">{formatLiveDuration(liveNow - new Date(activeWorkout.startedAt).getTime())}</span>
               </div>
-            </div>
-          ) : (
-            <p className="mt-5 text-slate-600">
-              Finished workouts will automatically appear here.
-            </p>
-          )}
-
-          <div className="mt-5 flex items-center justify-between text-sm">
-            <span className="text-slate-500">
-              Logged sets
-            </span>
-            <span className="font-semibold">
-              {totalCompletedSets}
-            </span>
-          </div>
-
-          <button
-            onClick={() => setActivePage("training")}
-            className="mt-6 w-full rounded-xl bg-emerald-500 py-3 font-semibold text-black transition hover:bg-emerald-400"
-          >
-            Go to training
-          </button>
-        </section>
-
-        <section className="rounded-3xl border border-slate-200 bg-white p-7">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600">
-                Progress
-              </p>
-              <h2 className="mt-2 text-2xl font-bold">
-                Body weight
-              </h2>
-            </div>
-
-            <button
-              onClick={() => setActivePage("progress")}
-              className="text-sm font-semibold text-emerald-600 hover:text-emerald-500"
-            >
-              View progress
+              <span className="mt-4 inline-flex rounded-xl bg-emerald-500 px-4 py-2 text-sm font-black text-white">Resume workout →</span>
             </button>
-          </div>
-
-          {latestWeight ? (
-            <>
-              <p className="mt-7 text-5xl font-black">
-                {latestWeight.weight}
-                <span className="ml-2 text-xl font-semibold text-slate-500">
-                  kg
-                </span>
-              </p>
-
-              <div className="mt-3 flex flex-wrap gap-2 text-sm">
-                <span className="rounded-lg bg-slate-50 px-3 py-2 text-slate-600">
-                  {formatProgressDate(latestWeight.date)}
-                </span>
-
-                {weightChange !== null && (
-                  <span
-                    className={`rounded-lg px-3 py-2 ${
-                      weightChange === 0
-                        ? "bg-slate-50 text-slate-600"
-                        : "bg-slate-50 text-slate-950"
-                    }`}
-                  >
-                    {weightChange > 0 ? "+" : ""}
-                    {weightChange} kg since last entry
-                  </span>
-                )}
-              </div>
-
-              {sortedWeights.length >= 2 && (
-                <div className="mt-6">
-                  <MiniWeightTrend entries={sortedWeights.slice(-8)} />
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6">
-              <p className="font-semibold">
-                No weight logged yet
-              </p>
-              <p className="mt-2 text-sm text-slate-500">
-                Add your first measurement in Progress.
-              </p>
-            </div>
           )}
-
-          <button
-            onClick={() => setActivePage("progress")}
-            className="mt-6 w-full rounded-xl border border-slate-300 py-3 font-semibold transition hover:bg-slate-100"
-          >
-            Open progress
-          </button>
-        </section>
-      </div>
-
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-7">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600">
-              Today's schedule
-            </p>
-            <h2 className="mt-2 text-2xl font-bold">
-              {todayPlan?.items.length
-                ? todayPlan.items
-                    .map((item) => item.label)
-                    .join(" + ")
-                : "Recovery day"}
-            </h2>
-          </div>
-          <button
-            onClick={() =>
-              setActivePage(
-                todayPlan?.items.some(
-                  (item) => item.detail === "Strength training"
-                )
-                  ? "training"
-                  : "plan"
-              )
-            }
-            className="rounded-xl bg-emerald-500 px-5 py-3 font-bold text-black hover:bg-emerald-400"
-          >
-            {todayPlan?.items.some(
-              (item) => item.detail === "Strength training"
-            )
-              ? "Open today's workout"
-              : "View weekly plan"}
-          </button>
-        </div>
-
-        {todayPlan?.items.length ? (
-          <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            {todayPlan.items.map((item, index) => (
-              <div
-                key={`${item.label}-${index}`}
-                className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
-              >
-                <p className="font-bold">{item.label}</p>
-                <p className="mt-1 text-sm text-slate-500">
-                  {item.detail}
-                </p>
+          {activeFast?.active && activeFast.startedAt && (
+            <button onClick={() => { localStorage.setItem("mucipes-more-detail-intent", "fasting"); setActivePage("profile"); }} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-emerald-300">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-widest text-emerald-600">Fast in progress</p>
+                  <h2 className="mt-1 text-xl font-black text-slate-950">{formatLiveDuration(liveNow - new Date(activeFast.startedAt).getTime())}</h2>
+                  <p className="mt-1 text-sm text-slate-500">Target {activeFast.targetHours}h · ends {new Date(new Date(activeFast.startedAt).getTime() + activeFast.targetHours * 3600000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
+                </div>
+                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">Active</span>
               </div>
-            ))}
-          </div>
-        ) : (
-          <p className="mt-4 text-sm text-slate-500">
-            No planned training today. Prioritize sleep, food and recovery.
-          </p>
-        )}
-      </section>
-
-      {progressionSuggestion && (
-        <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-7">
-          <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600">
-            Progressive overload
-          </p>
-          <div className="mt-3 flex flex-wrap items-end justify-between gap-5">
-            <div>
-              <h2 className="text-2xl font-bold">
-                {progressionSuggestion.exercise}
-              </h2>
-              <p className="mt-2 text-sm text-slate-500">
-                Last strong set: {progressionSuggestion.previous}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-5 py-4">
-              <p className="text-xs uppercase tracking-wider text-emerald-600">
-                Try next
-              </p>
-              <p className="mt-1 text-xl font-black">
-                {progressionSuggestion.next}
-              </p>
-            </div>
-          </div>
+              <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, ((liveNow - new Date(activeFast.startedAt).getTime()) / (activeFast.targetHours * 3600000)) * 100)}%` }} /></div>
+              <span className="mt-4 inline-flex text-sm font-black text-emerald-700">Open fasting →</span>
+            </button>
+          )}
         </section>
       )}
 
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-7">
-        <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600">
-          Today's actions
-        </p>
-        <h2 className="mt-2 text-2xl font-bold">
-          Focus on the next useful step
-        </h2>
+      <section className="grid gap-3 sm:grid-cols-3">
+        <button onClick={() => setActivePage("training")} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5">
+          <p className="text-xs font-black uppercase tracking-widest text-slate-400">Readiness</p>
+          <div className="mt-3 flex items-end justify-between"><p className="text-3xl font-black">{recoveryScore}</p><span className={`rounded-full px-3 py-1 text-xs font-black ${recoveryScore>=80?"bg-emerald-100 text-emerald-700":recoveryScore>=60?"bg-amber-100 text-amber-700":"bg-rose-100 text-rose-700"}`}>{recoveryLabel}</span></div>
+          <p className="mt-2 text-xs text-slate-500">Based on recent training and nutrition logging.</p>
+        </button>
+        <button onClick={() => setActivePage("training")} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5">
+          <p className="text-xs font-black uppercase tracking-widest text-slate-400">This week</p>
+          <p className="mt-3 text-3xl font-black">{weeklyWorkouts}<span className="text-base text-slate-400"> workouts</span></p>
+          <p className="mt-2 text-xs text-slate-500">Keep the week moving without overcomplicating it.</p>
+        </button>
+        <button onClick={() => setActivePage("nutrition")} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5">
+          <p className="text-xs font-black uppercase tracking-widest text-slate-400">Nutrition consistency</p>
+          <p className="mt-3 text-3xl font-black">{nutritionAdherence}<span className="text-base text-slate-400">%</span></p>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{width:`${nutritionAdherence}%`}} /></div>
+        </button>
+      </section>
 
-        <div className="mt-5 grid gap-3 md:grid-cols-3">
-          <button
-            onClick={() => setActivePage("nutrition")}
-            className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left transition hover:border-emerald-500/40"
-          >
-            <p className="font-bold">Finish nutrition</p>
-            <p className="mt-2 text-sm text-slate-500">
-              {caloriesRemaining > 0
-                ? `${Math.round(caloriesRemaining)} kcal remaining`
-                : "Review today's intake"}
-            </p>
-          </button>
+      <section className="grid gap-4 lg:grid-cols-[1.25fr_.75fr]">
+        <button
+          onClick={() => setActivePage("nutrition")}
+          className="rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Calories</p>
+              <p className="mt-2 text-3xl font-black text-slate-950">
+                {formatEnergy(caloriesEaten, displaySettings.energyUnit)} <span className="text-lg text-slate-400">/ {formatEnergy(goals.calories, displaySettings.energyUnit)}</span>
+              </p>
+            </div>
+            <span className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700">
+              {formatEnergy(Math.max(0, caloriesRemaining), displaySettings.energyUnit)} left
+            </span>
+          </div>
+          <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100">
+            <div
+              className="h-full rounded-full bg-emerald-500"
+              style={{ width: `${Math.min(100, goals.calories ? (caloriesEaten / goals.calories) * 100 : 0)}%` }}
+            />
+          </div>
+          <div className="mt-5 grid grid-cols-3 gap-3">
+            <TodayMacro label="Protein" value={proteinEaten} goal={goals.protein} />
+            <TodayMacro label="Carbs" value={carbsEaten} goal={goals.carbs} />
+            <TodayMacro label="Fat" value={fatEaten} goal={goals.fat} />
+          </div>
+        </button>
 
-          <button
-            onClick={() => setActivePage("training")}
-            className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left transition hover:border-emerald-500/40"
-          >
-            <p className="font-bold">Training</p>
-            <p className="mt-2 text-sm text-slate-500">
-              Open your workouts and continue your plan.
-            </p>
-          </button>
+        <button
+          onClick={() => setActivePage("training")}
+          className="rounded-3xl border border-emerald-200 bg-white p-6 text-left text-slate-950 shadow-sm transition hover:-translate-y-0.5"
+        >
+          <p className="text-xs font-bold uppercase tracking-widest text-emerald-400">Today's workout</p>
+          <h2 className="mt-3 text-2xl font-black">
+            {lastWorkout ? "Ready for the next session?" : "Start your first workout"}
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-slate-500">
+            {lastWorkout
+              ? `Last: ${lastWorkout.name} · ${Math.round(lastWorkout.durationSeconds / 60)} min`
+              : "Build a routine or start an empty workout."}
+          </p>
+          <span className="mt-6 inline-flex rounded-xl bg-emerald-400 px-4 py-3 text-sm font-black text-slate-950">
+            Start Workout →
+          </span>
+        </button>
+      </section>
 
-          <button
-            onClick={() => setActivePage("progress")}
-            className="rounded-2xl border border-slate-200 bg-slate-50 p-5 text-left transition hover:border-emerald-500/40"
-          >
-            <p className="font-bold">Log progress</p>
-            <p className="mt-2 text-sm text-slate-500">
-              Keep weight data consistent for better adjustments.
-            </p>
-          </button>
+      <section className="grid gap-4 md:grid-cols-3">
+        <TodayInfoCard
+          label="Weight trend"
+          value={latestWeight ? formatWeight(latestWeight.weight, displaySettings.units) : "No data"}
+          detail={weightChange === null ? "Add a weigh-in" : `${weightChange > 0 ? "+" : ""}${formatWeight(weightChange, displaySettings.units)} vs previous`}
+          onClick={() => setActivePage("progress")}
+        />
+        <TodayInfoCard
+          label="Training streak"
+          value={`${streak} day${streak === 1 ? "" : "s"}`}
+          detail={`${sortedWorkouts.length} workouts logged`}
+          onClick={() => setActivePage("progress")}
+        />
+        <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
+          <p className="text-xs font-bold uppercase tracking-widest text-emerald-700">CYG Coach</p>
+          <p className="mt-3 text-lg font-black text-slate-950">{insight}</p>
+          <p className="mt-2 text-sm text-slate-600">Based on today's logged data.</p>
         </div>
       </section>
 
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-7">
-        <div className="flex flex-wrap items-center justify-between gap-5">
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+        <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600">
-              Get Fit Plan
-            </p>
-            <h2 className="mt-2 text-2xl font-bold">
-              Your plan will adapt as BodyPilot learns from you
-            </h2>
-            <p className="mt-2 max-w-3xl text-slate-600">
-              Nutrition, workouts and progress are now connected on
-              the dashboard. The next version can use these signals
-              to adjust targets and training recommendations over time.
-            </p>
+            <p className="text-xs font-black uppercase tracking-widest text-emerald-600">Weekly summary</p>
+            <h2 className="mt-1 text-xl font-black text-slate-950">The signals that matter</h2>
           </div>
-
-          <div className="flex gap-2">
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-600">
-              Nutrition ✓
-            </span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-600">
-              Training ✓
-            </span>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-xs font-semibold text-slate-600">
-              Progress ✓
-            </span>
-          </div>
+          <span className="text-xs font-bold text-slate-400">Last 7 days</span>
         </div>
+        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <WeeklySummaryStat label="Workouts" value={`${weeklyWorkouts}/${bodyProfile.trainingDays}`} />
+          <WeeklySummaryStat label="New PRs" value={`${weeklyPrs}`} />
+          <WeeklySummaryStat label="Avg protein" value={avgProtein7 === null ? "—" : `${avgProtein7} g`} />
+          <WeeklySummaryStat label="Calorie adherence" value={recentNutrition.length ? `${nutritionAdherence}%` : "—"} />
+          <WeeklySummaryStat label="Weight" value={weekWeightChange === null ? "—" : `${weekWeightChange > 0 ? "+" : ""}${formatWeight(weekWeightChange, displaySettings.units)}`} />
+        </div>
+        <p className="mt-4 text-sm leading-6 text-slate-500">{weeklyWorkouts >= bodyProfile.trainingDays && nutritionAdherence >= 85 ? "Strong consistency this week. Keep the plan stable unless your longer-term trend says otherwise." : "Use this summary for direction, not perfection. One off day does not require a plan change."}</p>
       </section>
-    </>
+    </div>
+  );
+}
+
+function WeeklySummaryStat({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 text-lg font-black text-slate-900">{value}</p></div>;
+}
+
+function TodayMacro({ label, value, goal }: { label: string; value: number; goal: number }) {
+  const pct = goal > 0 ? Math.min(100, (value / goal) * 100) : 0;
+  return (
+    <div>
+      <div className="flex items-center justify-between gap-2 text-xs">
+        <span className="font-bold text-slate-700">{label}</span>
+        <span className="text-slate-400">{Math.round(value)}/{goal}g</span>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
+        <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function TodayInfoCard({
+  label, value, detail, onClick,
+}: {
+  label: string; value: string; detail: string; onClick: () => void;
+}) {
+  return (
+    <button onClick={onClick} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:shadow-md">
+      <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</p>
+      <p className="mt-2 text-2xl font-black text-slate-950">{value}</p>
+      <p className="mt-1 text-sm text-slate-500">{detail}</p>
+    </button>
   );
 }
 
@@ -2061,6 +2745,7 @@ function GetFitPlan({
   weightEntries,
   nutritionHistory,
   setActivePage,
+  displaySettings,
 }: {
   profile: BodyProfile;
   setProfile: React.Dispatch<React.SetStateAction<BodyProfile>>;
@@ -2069,10 +2754,15 @@ function GetFitPlan({
   weightEntries: WeightEntry[];
   nutritionHistory: NutritionDay[];
   setActivePage: (page: Page) => void;
+  displaySettings: ReturnType<typeof readMucipesDisplaySettings>;
 }) {
   const [draft, setDraft] = useState<BodyProfile>(profile);
   const [calculated, setCalculated] = useState(false);
   const [planSavedToTraining, setPlanSavedToTraining] = useState(false);
+  const planWeightUnit = weightUnitLabel(displaySettings.units);
+  const planLengthUnit = lengthUnitLabel(displaySettings.units);
+  const formatWeeklyRate = (kgPerWeek: number) => `${kgToDisplay(kgPerWeek, displaySettings.units).toFixed(kgPerWeek < 0.2 ? 2 : 1)} ${planWeightUnit} / week`;
+  const formatSignedWeeklyRate = (kgPerWeek: number) => `${kgPerWeek > 0 ? "+" : ""}${kgToDisplay(kgPerWeek, displaySettings.units).toFixed(2)} ${planWeightUnit}/week`;
 
   useEffect(() => {
     setDraft(profile);
@@ -2202,7 +2892,7 @@ function GetFitPlan({
       setPlanSavedToTraining(true);
     } catch (error) {
       console.error(
-        "Could not save BodyPilot training plan:",
+        "Could not save CYG training plan:",
         error
       );
     }
@@ -2254,6 +2944,14 @@ function GetFitPlan({
     setCalculated(true);
   }
 
+
+  const planCompletion = Math.min(100, Math.round(
+    (nutritionHistory.slice(-7).length / 7) * 45 +
+    (weightEntries.slice(-7).length > 0 ? 20 : 0) +
+    (profile.trainingDays > 0 ? 35 : 0)
+  ));
+  const planStatus = adaptive.ready ? "Ready for check-in" : planCompletion >= 60 ? "On track" : "Build consistency";
+
   return (
     <>
       <p className="text-sm font-semibold tracking-widest text-emerald-600">
@@ -2265,10 +2963,16 @@ function GetFitPlan({
       </h1>
 
       <p className="mt-3 max-w-3xl text-slate-600">
-        BodyPilot estimates your maintenance calories from your body
+        CYG estimates your maintenance calories from your body
         data and activity, then adjusts calories and macros for your
         selected goal. You can still edit the targets later.
       </p>
+
+      <section className="mt-7 grid gap-3 sm:grid-cols-3">
+        <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-slate-950"><p className="text-xs font-black uppercase tracking-widest text-emerald-400">Plan status</p><p className="mt-2 text-2xl font-black">{planStatus}</p><p className="mt-2 text-xs text-slate-400">CYG uses your logged trend before suggesting changes.</p></div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5"><p className="text-xs font-black uppercase tracking-widest text-slate-400">Consistency</p><p className="mt-2 text-3xl font-black">{planCompletion}%</p><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full bg-emerald-500" style={{width:`${planCompletion}%`}} /></div></div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5"><p className="text-xs font-black uppercase tracking-widest text-slate-400">Current target</p><p className="mt-2 text-3xl font-black">{formatEnergy(goals.calories, displaySettings.energyUnit)}</p><p className="mt-2 text-xs text-slate-500">{goals.protein} g protein · {profile.trainingDays} training days</p></div>
+      </section>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
         <section className="rounded-3xl border border-slate-200 bg-white p-7">
@@ -2296,31 +3000,32 @@ function GetFitPlan({
 
             <PlanNumber
               label="Height"
-              value={draft.height}
-              unit="cm"
-              min={120}
-              max={230}
-              onChange={(value) => update("height", value)}
+              value={round1(cmToDisplay(draft.height, displaySettings.units))}
+              unit={planLengthUnit}
+              min={displaySettings.units === "imperial" ? 47 : 120}
+              max={displaySettings.units === "imperial" ? 91 : 230}
+              step={0.1}
+              onChange={(value) => update("height", round1(displayToCm(value, displaySettings.units)))}
             />
 
             <PlanNumber
               label="Weight"
-              value={draft.weight}
-              unit="kg"
-              min={35}
-              max={300}
+              value={round1(kgToDisplay(draft.weight, displaySettings.units))}
+              unit={planWeightUnit}
+              min={displaySettings.units === "imperial" ? 77 : 35}
+              max={displaySettings.units === "imperial" ? 660 : 300}
               step={0.1}
-              onChange={(value) => update("weight", value)}
+              onChange={(value) => update("weight", round1(displayToKg(value, displaySettings.units)))}
             />
 
             <PlanNumber
               label="Target weight"
-              value={draft.targetWeight}
-              unit="kg"
-              min={35}
-              max={300}
+              value={round1(kgToDisplay(draft.targetWeight, displaySettings.units))}
+              unit={planWeightUnit}
+              min={displaySettings.units === "imperial" ? 77 : 35}
+              max={displaySettings.units === "imperial" ? 660 : 300}
               step={0.1}
-              onChange={(value) => update("targetWeight", value)}
+              onChange={(value) => update("targetWeight", round1(displayToKg(value, displaySettings.units)))}
             />
 
             <PlanSelect
@@ -2410,7 +3115,7 @@ function GetFitPlan({
                 )}
               </div>
               <p className="mt-2 text-xs text-slate-400">
-                Pick up to {draft.trainingDays} days. BodyPilot uses these first
+                Pick up to {draft.trainingDays} days. CYG uses these first
                 and fills any missing days automatically.
               </p>
             </div>
@@ -2517,14 +3222,14 @@ function GetFitPlan({
                 options={
                   draft.goal === "lose"
                     ? [
-                        ["0.25", "0.25 kg / week"],
-                        ["0.5", "0.50 kg / week"],
-                        ["0.75", "0.75 kg / week"],
+                        ["0.25", formatWeeklyRate(0.25)],
+                        ["0.5", formatWeeklyRate(0.5)],
+                        ["0.75", formatWeeklyRate(0.75)],
                       ]
                     : [
-                        ["0.1", "0.10 kg / week"],
-                        ["0.25", "0.25 kg / week"],
-                        ["0.5", "0.50 kg / week"],
+                        ["0.1", formatWeeklyRate(0.1)],
+                        ["0.25", formatWeeklyRate(0.25)],
+                        ["0.5", formatWeeklyRate(0.5)],
                       ]
                 }
               />
@@ -2533,12 +3238,12 @@ function GetFitPlan({
 
           <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm leading-6 text-slate-600">
             Activity level matters a lot for the calorie estimate.
-            BodyPilot uses this as a starting estimate; later we can
+            CYG uses this as a starting estimate; later we can
             make it adaptive from your real weight trend and intake.
           </div>
         </section>
 
-        <section className="rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-zinc-900 to-emerald-950/20 p-7">
+        <section className="rounded-3xl border border-emerald-200 bg-white p-7 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600">
             Estimated targets
           </p>
@@ -2549,10 +3254,10 @@ function GetFitPlan({
             </p>
             <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
               <p className="text-2xl font-bold">
-                {draft.weight} kg → {draft.targetWeight} kg
+                {formatWeight(draft.weight, displaySettings.units)} → {formatWeight(draft.targetWeight, displaySettings.units)}
               </p>
               <p className="text-sm text-slate-500">
-                {Math.abs(round1(draft.targetWeight - draft.weight))} kg difference
+                {formatWeight(Math.abs(draft.targetWeight - draft.weight), displaySettings.units)} difference
               </p>
             </div>
           </div>
@@ -2560,12 +3265,12 @@ function GetFitPlan({
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
             <PlanResult
               label="BMR"
-              value={`${result.bmr} kcal`}
+              value={formatEnergy(result.bmr, displaySettings.energyUnit)}
               detail="Estimated resting needs"
             />
             <PlanResult
               label="Maintenance"
-              value={`${result.maintenance} kcal`}
+              value={formatEnergy(result.maintenance, displaySettings.energyUnit)}
               detail="Estimated daily expenditure"
             />
           </div>
@@ -2575,10 +3280,10 @@ function GetFitPlan({
               Daily calorie target
             </p>
             <p className="mt-2 text-5xl font-black text-emerald-600">
-              {result.calories}
+              {energyDisplay(result.calories, displaySettings.energyUnit).toLocaleString()}
             </p>
             <p className="mt-1 text-sm text-slate-500">
-              kcal / day
+              {displaySettings.energyUnit === "kj" ? "kJ" : "kcal"} / day
             </p>
           </div>
 
@@ -2621,7 +3326,7 @@ function GetFitPlan({
 
           <p className="mt-4 text-xs leading-5 text-slate-400">
             These are estimates, not medical or dietetic advice.
-            Real maintenance can differ, so future BodyPilot versions
+            Real maintenance can differ, so future CYG versions
             should adjust the plan from actual weight trends.
           </p>
         </section>
@@ -2637,7 +3342,7 @@ function GetFitPlan({
               Strength + cardio together
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              BodyPilot spreads strength and cardio across the week and tries
+              CYG spreads strength and cardio across the week and tries
               to avoid placing harder cardio directly before lower-body training.
             </p>
           </div>
@@ -2753,8 +3458,8 @@ function GetFitPlan({
         <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm leading-6 text-slate-600">
           Start with loads that leave roughly 1–3 good reps in reserve on most
           working sets. When you reach the top of the rep range with solid form,
-          add a small amount of weight next time. The next BodyPilot version can
-          save this generated program directly into Saved Workouts.
+          add a small amount of weight next time. Save the generated program
+          directly into Saved Workouts when you are ready.
         </div>
 
         <div className="mt-5 flex flex-wrap gap-3">
@@ -2800,7 +3505,7 @@ function GetFitPlan({
             <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <PlanResult
                 label="Average calories"
-                value={`${recentNutrition.calories} kcal`}
+                value={formatEnergy(recentNutrition.calories, displaySettings.energyUnit)}
                 detail={`${recentNutrition.days} logged day${recentNutrition.days === 1 ? "" : "s"}`}
               />
               <PlanResult
@@ -2826,7 +3531,7 @@ function GetFitPlan({
               </p>
               <p className="mt-2 text-2xl font-bold">
                 {recentNutrition.calories - goals.calories > 0 ? "+" : ""}
-                {recentNutrition.calories - goals.calories} kcal/day
+                {formatEnergy(recentNutrition.calories - goals.calories, displaySettings.energyUnit)}/day
               </p>
               <p className="mt-1 text-xs text-slate-400">
                 Difference between your logged average and current target.
@@ -2837,7 +3542,7 @@ function GetFitPlan({
           <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6">
             <p className="font-semibold">No completed nutrition days yet.</p>
             <p className="mt-2 text-sm text-slate-500">
-              BodyPilot now saves a daily nutrition snapshot automatically.
+              CYG now saves a daily nutrition snapshot automatically.
               Tomorrow, today's totals will become your first completed day.
             </p>
           </div>
@@ -2848,13 +3553,13 @@ function GetFitPlan({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600">
-              Adaptive BodyPilot
+              Adaptive CYG
             </p>
             <h2 className="mt-2 text-2xl font-bold">
               Weight-trend check-in
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              BodyPilot compares your recent weight trend with the weekly
+              CYG compares your recent weight trend with the weekly
               rate selected in your Get Fit Plan. It only suggests a small
               calorie change; you decide whether to apply it.
             </p>
@@ -2876,7 +3581,7 @@ function GetFitPlan({
             </p>
             <p className="mt-2 text-sm text-slate-500">
               Add body-weight measurements in Progress. For a useful trend,
-              BodyPilot needs at least 4 measurements spanning at least 7 days.
+              CYG needs at least 4 measurements spanning at least 7 days.
             </p>
             <button
               onClick={() => setActivePage("progress")}
@@ -2890,22 +3595,24 @@ function GetFitPlan({
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1">
               <PlanResult
                 label="Observed trend"
-                value={`${adaptive.observedRate! > 0 ? "+" : ""}${adaptive.observedRate} kg/week`}
+                value={formatSignedWeeklyRate(adaptive.observedRate!)}
                 detail="Based on recent weigh-ins"
               />
               <PlanResult
                 label="Planned trend"
-                value={`${adaptive.targetRate! > 0 ? "+" : ""}${adaptive.targetRate} kg/week`}
+                value={formatSignedWeeklyRate(adaptive.targetRate!)}
                 detail="From your Get Fit Plan"
               />
             </div>
 
             <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-6">
               <p className="text-sm font-semibold text-emerald-500">
-                BodyPilot recommendation
+                CYG recommendation
               </p>
               <p className="mt-3 text-xl font-bold">
-                {adaptive.recommendation}
+                {adaptive.suggestedCalories !== null && adaptive.suggestedCalories !== goals.calories
+                  ? `${adaptive.suggestedCalories > goals.calories ? "Increase" : "Decrease"} calories by ${formatEnergy(Math.abs(adaptive.suggestedCalories - goals.calories), displaySettings.energyUnit)}/day.`
+                  : adaptive.recommendation}
               </p>
               <p className="mt-3 text-sm leading-6 text-slate-600">
                 {adaptive.explanation}
@@ -2919,10 +3626,10 @@ function GetFitPlan({
                       Estimated real maintenance
                     </p>
                     <p className="mt-2 text-xl font-bold">
-                      {Math.round(
-                        recentNutrition.calories -
-                          (adaptive.observedRate * 7700) / 7
-                      )} kcal/day
+                      {formatEnergy(
+                        Math.round(recentNutrition.calories - (adaptive.observedRate * 7700) / 7),
+                        displaySettings.energyUnit
+                      )}/day
                     </p>
                     <p className="mt-1 text-xs text-slate-400">
                       Early estimate from logged intake and recent weight trend.
@@ -2937,7 +3644,7 @@ function GetFitPlan({
                     <div className="rounded-xl bg-slate-50 px-4 py-3">
                       <p className="text-xs text-slate-500">Suggested target</p>
                       <p className="mt-1 text-2xl font-black">
-                        {adaptive.suggestedCalories} kcal
+                        {formatEnergy(adaptive.suggestedCalories, displaySettings.energyUnit)}
                       </p>
                     </div>
 
@@ -2954,9 +3661,8 @@ function GetFitPlan({
         )}
 
         <p className="mt-5 text-xs leading-5 text-slate-400">
-          V1 uses your weight trend. A later version can become more accurate
-          by storing daily calorie-intake history and comparing intake,
-          adherence and weight trend together.
+          CYG uses your weight trend together with completed nutrition-day history.
+          More consistent logging makes the recommendation more representative.
         </p>
       </section>
 
@@ -2965,7 +3671,7 @@ function GetFitPlan({
         <div className="mt-4 grid gap-3 sm:grid-cols-4">
           <PlanResult
             label="Calories"
-            value={`${goals.calories} kcal`}
+            value={formatEnergy(goals.calories, displaySettings.energyUnit)}
             detail="Current Nutrition goal"
           />
           <PlanResult
@@ -3063,7 +3769,7 @@ function getCardioGuidance(profile: BodyProfile) {
   }
 
   if (goal === "performance") {
-    return "Combine easy aerobic work with one quality session. BodyPilot keeps harder cardio away from lower-body sessions where possible to reduce interference.";
+    return "Combine easy aerobic work with one quality session. CYG keeps harder cardio away from lower-body sessions where possible to reduce interference.";
   }
 
   return "Use mostly easy Zone 2-style cardio for general fitness and recovery. You should finish with more in the tank rather than exhausted.";
@@ -3640,15 +4346,15 @@ function calculateAdaptiveAdjustment(
     explanation:
       profile.goal === "lose"
         ? calorieAdjustment < 0
-          ? "Your recent weight loss is slower than the selected target, so BodyPilot suggests a small reduction rather than a large jump."
-          : "Your recent weight loss is faster than the selected target, so BodyPilot suggests adding a small amount of food."
+          ? "Your recent weight loss is slower than the selected target, so CYG suggests a small reduction rather than a large jump."
+          : "Your recent weight loss is faster than the selected target, so CYG suggests adding a small amount of food."
         : profile.goal === "gain"
           ? calorieAdjustment > 0
-            ? "Your recent weight gain is slower than the selected target, so BodyPilot suggests a small calorie increase."
-            : "Your recent weight gain is faster than the selected target, so BodyPilot suggests a small calorie reduction."
+            ? "Your recent weight gain is slower than the selected target, so CYG suggests a small calorie increase."
+            : "Your recent weight gain is faster than the selected target, so CYG suggests a small calorie reduction."
           : calorieAdjustment > 0
-            ? "Your weight is trending down while your goal is maintenance, so BodyPilot suggests a small calorie increase."
-            : "Your weight is trending up while your goal is maintenance, so BodyPilot suggests a small calorie reduction.",
+            ? "Your weight is trending down while your goal is maintenance, so CYG suggests a small calorie increase."
+            : "Your weight is trending up while your goal is maintenance, so CYG suggests a small calorie reduction.",
   };
 }
 
@@ -3864,6 +4570,11 @@ function Nutrition({
   carbsRemaining,
   fatRemaining,
   nutritionHistory,
+  foodDiaryHistory,
+  updateFood,
+  duplicateFood,
+  duplicateMeal,
+  copyYesterdayFoods,
 }: {
   foods: Food[];
   meals: Meal[];
@@ -3899,6 +4610,11 @@ function Nutrition({
   carbsRemaining: number;
   fatRemaining: number;
   nutritionHistory: NutritionDay[];
+  foodDiaryHistory: FoodDiaryDay[];
+  updateFood: (food: Food) => void;
+  duplicateFood: (id: number) => void;
+  duplicateMeal: (mealId: string) => void;
+  copyYesterdayFoods: () => boolean;
 }) {
   const [
     showGoals,
@@ -3919,6 +4635,101 @@ function Nutrition({
     newMealName,
     setNewMealName,
   ] = useState("");
+
+  const [foodSearchMealId, setFoodSearchMealId] =
+    useState<string | undefined>(undefined);
+
+  const [diaryMessage, setDiaryMessage] =
+    useState("");
+
+  const [waterMl, setWaterMl] = useState(() => {
+    if (typeof window === "undefined") return 0;
+    try {
+      const raw = localStorage.getItem(`bodypilot-water-${getTodayDateInput()}`);
+      return raw ? Number(raw) : 0;
+    } catch { return 0; }
+  });
+  const [savedMeals, setSavedMeals] = useState<{id:string; name:string; foods:Food[]}[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem("bodypilot-saved-meals");
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  });
+  const [recipes, setRecipes] = useState<{id:string; name:string; servings:number; foods:Food[]}[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const raw = localStorage.getItem("bodypilot-recipes");
+      return raw ? JSON.parse(raw) : [];
+    } catch { return []; }
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    async function hydrateNutritionExtras() {
+      const [cloudWater, cloudSavedMeals, cloudRecipes] = await Promise.all([
+        loadCloudData<number>(`water_${getTodayDateInput()}`),
+        loadCloudData<{id:string; name:string; foods:Food[]}[]>("saved_meals"),
+        loadCloudData<{id:string; name:string; servings:number; foods:Food[]}[]>("recipes"),
+      ]);
+      if (cancelled) return;
+      if (typeof cloudWater === "number") setWaterMl(cloudWater);
+      if (Array.isArray(cloudSavedMeals)) setSavedMeals(cloudSavedMeals);
+      if (Array.isArray(cloudRecipes)) setRecipes(cloudRecipes);
+    }
+    void hydrateNutritionExtras();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(`bodypilot-water-${getTodayDateInput()}`, String(waterMl));
+    void saveCloudData(`water_${getTodayDateInput()}`, waterMl);
+  }, [waterMl]);
+
+  useEffect(() => {
+    localStorage.setItem("bodypilot-saved-meals", JSON.stringify(savedMeals));
+    void saveCloudData("saved_meals", savedMeals);
+  }, [savedMeals]);
+
+  useEffect(() => {
+    localStorage.setItem("bodypilot-recipes", JSON.stringify(recipes));
+    void saveCloudData("recipes", recipes);
+  }, [recipes]);
+
+  function saveMealFromDiary() {
+    const name = window.prompt("Saved meal name:");
+    if (!name?.trim() || foods.length === 0) return;
+    setSavedMeals((current) => [
+      ...current,
+      { id: `${Date.now()}`, name: name.trim(), foods: foods.map((f) => ({...f, id: Date.now() + Math.random()})) },
+    ]);
+  }
+
+  function addSavedMeal(item: {id:string; name:string; foods:Food[]}) {
+    addFoods(item.foods.map((food) => ({...food, id: Date.now() + Math.random()})));
+  }
+
+  function createRecipeFromDiary() {
+    const name = window.prompt("Recipe name:");
+    if (!name?.trim() || foods.length === 0) return;
+    const servings = Math.max(1, Number(window.prompt("Number of servings:", "1")) || 1);
+    setRecipes((current) => [
+      ...current,
+      { id: `${Date.now()}`, name: name.trim(), servings, foods: foods.map((f) => ({...f})) },
+    ]);
+  }
+
+  function addRecipe(recipe: {id:string; name:string; servings:number; foods:Food[]}) {
+    const scale = 1 / Math.max(1, recipe.servings);
+    addFoods(recipe.foods.map((food) => ({
+      ...food,
+      id: Date.now() + Math.random(),
+      calories: round1(food.calories * scale),
+      protein: round1(food.protein * scale),
+      carbs: round1(food.carbs * scale),
+      fat: round1(food.fat * scale),
+    })));
+  }
 
   const [
     calories,
@@ -4026,8 +4837,7 @@ function Nutrition({
     setNewMealName("");
     setShowNewMeal(false);
   }
-
-  return (
+return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-5">
         <div>
@@ -4071,9 +4881,21 @@ function Nutrition({
         </div>
       </div>
 
+      <NutritionInsights
+        foods={foods}
+        caloriesEaten={caloriesEaten}
+        proteinEaten={proteinEaten}
+        carbsEaten={carbsEaten}
+        fatEaten={fatEaten}
+        goals={goals}
+        nutritionHistory={nutritionHistory}
+        waterMl={waterMl}
+        setWaterMl={setWaterMl}
+      />
+
       {showNewMeal && (
         <section className="mt-6 rounded-3xl border border-emerald-500/30 bg-white p-6">
-          <h2 className="text-xl font-semibold">
+                  <h2 className="text-xl font-semibold">
             Create a meal
           </h2>
 
@@ -4246,25 +5068,120 @@ function Nutrition({
         />
       </div>
 
-      <FoodSearch
-        meals={meals}
-        onAddFood={
-          addFood
-        }
-      />
+
+      <section className="mt-8 grid gap-4 lg:grid-cols-3">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-widest text-sky-600">Water</p>
+              <p className="mt-1 text-2xl font-black">{(waterMl / 1000).toFixed(1)} L</p>
+            </div>
+            <span className="text-sm text-slate-400">Goal 3.0 L</span>
+          </div>
+          <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full rounded-full bg-sky-500" style={{width:`${Math.min(100,(waterMl/3000)*100)}%`}} />
+          </div>
+          <div className="mt-4 flex gap-2">
+            {[250,500,750].map((ml) => (
+              <button key={ml} onClick={() => setWaterMl((v) => v + ml)} className="flex-1 rounded-xl border border-slate-200 py-2 text-xs font-bold hover:bg-slate-50">
+                +{ml} ml
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-widest text-emerald-600">Saved meals</p>
+          <div className="mt-3 space-y-2">
+            {savedMeals.slice(-2).map((meal) => (
+              <button key={meal.id} onClick={() => addSavedMeal(meal)} className="flex w-full items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-left text-sm font-bold">
+                <span>{meal.name}</span><span className="text-emerald-600">+ Add</span>
+              </button>
+            ))}
+            {savedMeals.length === 0 && <p className="text-sm text-slate-400">Save your current diary as a reusable meal.</p>}
+          </div>
+          <button onClick={saveMealFromDiary} className="mt-4 w-full rounded-xl border border-slate-200 py-2 text-sm font-bold">Save current foods</button>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-xs font-bold uppercase tracking-widest text-violet-600">Recipes</p>
+          <div className="mt-3 space-y-2">
+            {recipes.slice(-2).map((recipe) => (
+              <button key={recipe.id} onClick={() => addRecipe(recipe)} className="flex w-full items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-left text-sm font-bold">
+                <span>{recipe.name} <span className="font-normal text-slate-400">/ serving</span></span>
+                <span className="text-violet-600">+ Add</span>
+              </button>
+            ))}
+            {recipes.length === 0 && <p className="text-sm text-slate-400">Create a reusable recipe from logged foods.</p>}
+          </div>
+          <button onClick={createRecipeFromDiary} className="mt-4 w-full rounded-xl border border-slate-200 py-2 text-sm font-bold">Create recipe</button>
+        </div>
+      </section>
+
+      <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-amber-600">Micronutrients</p>
+            <h3 className="mt-1 text-lg font-black">Nutrition quality</h3>
+          </div>
+          <span className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">V2 foundation</span>
+        </div>
+        <p className="mt-2 text-sm text-slate-500">
+          Fiber, sugar, sodium and vitamin/mineral totals will populate automatically as nutrient-rich food records are added. Existing macro-only foods remain fully compatible.
+        </p>
+      </section>
+
+      <div id="food-search">
+        <FoodSearch
+          meals={meals}
+          onAddFood={addFood}
+          requestedMealId={foodSearchMealId}
+        />
+      </div>
+
+      {diaryMessage && (
+        <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+          {diaryMessage}
+        </div>
+      )}
 
       <FoodDiary
         foods={foods}
         meals={meals}
-        onDelete={
-          deleteFood
+        goals={goals}
+        onDelete={deleteFood}
+        onMoveFood={moveFood}
+        onDeleteMeal={deleteMeal}
+        onUpdateFood={updateFood}
+        onDuplicateFood={duplicateFood}
+        onDuplicateMeal={duplicateMeal}
+        hasYesterday={
+          foodDiaryHistory.some((day) => {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const key = [
+              yesterday.getFullYear(),
+              String(yesterday.getMonth() + 1).padStart(2, "0"),
+              String(yesterday.getDate()).padStart(2, "0"),
+            ].join("-");
+            return day.date === key && day.foods.length > 0;
+          })
         }
-        onMoveFood={
-          moveFood
-        }
-        onDeleteMeal={
-          deleteMeal
-        }
+        onCopyYesterday={() => {
+          const copied = copyYesterdayFoods();
+          setDiaryMessage(
+            copied
+              ? "Yesterday's food was copied to today."
+              : "No food log was found for yesterday."
+          );
+          window.setTimeout(() => setDiaryMessage(""), 3000);
+        }}
+        onAddFoodToMeal={(mealId) => {
+          setFoodSearchMealId(mealId);
+          document
+            .getElementById("food-search")
+            ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
       />
 
       <button
@@ -4295,6 +5212,7 @@ function Nutrition({
             fatRemaining
           }
           meals={meals}
+          displaySettings={readMucipesDisplaySettings()}
           onAddFoods={
             addFoods
           }
@@ -4412,18 +5330,22 @@ function Nutrition({
   );
 }
 
+
+
 function Progress({
   weightEntries,
   setWeightEntries,
+  displaySettings,
 }: {
   weightEntries: WeightEntry[];
   setWeightEntries: React.Dispatch<
     React.SetStateAction<WeightEntry[]>
   >;
+  displaySettings: ReturnType<typeof readMucipesDisplaySettings>;
 }) {
   const [activeProgressTab, setActiveProgressTab] =
-    useState<"weight" | "strength" | "records">(
-      "weight"
+    useState<"overview" | "weight" | "strength" | "records" | "body">(
+      "overview"
     );
 
   const [weight, setWeight] = useState("");
@@ -4437,24 +5359,68 @@ function Progress({
   const [selectedExerciseId, setSelectedExerciseId] =
     useState("");
 
-  useEffect(() => {
-    try {
-      const savedHistory = localStorage.getItem(
-        "bodypilot-workout-history"
-      );
+  const [progressRange, setProgressRange] = useState<0 | 7 | 30 | 90 | 365>(30);
+  const [measurements, setMeasurements] = useState<{date:string; waist?:number; chest?:number; arm?:number}[]>(() => {
+    if (typeof window === "undefined") return [];
+    try { const raw = localStorage.getItem("bodypilot-measurements"); return raw ? JSON.parse(raw) : []; }
+    catch { return []; }
+  });
+  const [progressPhotos, setProgressPhotos] = useState<{id:string; date:string; dataUrl:string}[]>(() => {
+    if (typeof window === "undefined") return [];
+    try { const raw = localStorage.getItem("bodypilot-progress-photos"); return raw ? JSON.parse(raw) : []; }
+    catch { return []; }
+  });
 
+  useEffect(() => {
+    void loadCloudData<{date:string; waist?:number; chest?:number; arm?:number}[]>("measurements")
+      .then((cloud) => { if (Array.isArray(cloud)) setMeasurements(cloud); });
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("bodypilot-measurements", JSON.stringify(measurements));
+    void saveCloudData("measurements", measurements);
+  }, [measurements]);
+  useEffect(() => {
+    void loadCloudData<{id:string; date:string; dataUrl:string}[]>("progress_photos")
+      .then((cloud) => { if (Array.isArray(cloud) && cloud.length) setProgressPhotos(cloud.slice(-6)); })
+      .catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
+    const trimmed = progressPhotos.slice(-6);
+    try { localStorage.setItem("bodypilot-progress-photos", JSON.stringify(trimmed)); }
+    catch { /* compressed photos can still exceed a browser quota; cloud save remains best-effort */ }
+    void saveCloudData("progress_photos", trimmed).catch(() => undefined);
+  }, [progressPhotos]);
+
+  async function addProgressPhoto(file?: File) {
+    if (!file) return;
+    try {
+      const dataUrl = await compressProgressPhoto(file);
+      setProgressPhotos(current => [...current, { id: `${Date.now()}`, date: getTodayDateInput(), dataUrl }].slice(-6));
+    } catch (error) {
+      console.error("Could not prepare progress photo:", error);
+    }
+  }
+
+  useEffect(() => {
+    let localLoaded = false;
+    try {
+      const savedHistory = localStorage.getItem("bodypilot-workout-history");
       if (savedHistory) {
         const parsed = JSON.parse(savedHistory);
-
         if (Array.isArray(parsed)) {
           setTrainingHistory(parsed);
+          localLoaded = parsed.length > 0;
         }
       }
     } catch (error) {
-      console.error(
-        "Could not load workout history for progress:",
-        error
-      );
+      console.error("Could not load workout history for progress:", error);
+    }
+    if (!localLoaded) {
+      void loadCloudData<TrainingHistoryEntry[]>("workout_history")
+        .then((cloud) => { if (Array.isArray(cloud)) setTrainingHistory(cloud); })
+        .catch(() => undefined);
     }
   }, []);
 
@@ -4661,6 +5627,25 @@ function Progress({
         )
       : null;
 
+  const inProgressRange = (date: string) =>
+    progressRange === 0 || Date.now() - new Date(date).getTime() <= progressRange * 86400000;
+  const displayWeightValue = (kg: number) => round1(kgToDisplay(kg, displaySettings.units));
+  const signedWeight = (kg: number) => `${kg > 0 ? "+" : ""}${formatWeight(kg, displaySettings.units)}`;
+  const measurementUnit = lengthUnitLabel(displaySettings.units);
+
+  function addMeasurementQuick() {
+    const waistDisplay = Number(window.prompt(`Waist (${measurementUnit}):`, ""));
+    if (!Number.isFinite(waistDisplay) || waistDisplay <= 0) return;
+    const chestDisplay = Number(window.prompt(`Chest (${measurementUnit}, optional):`, ""));
+    const armDisplay = Number(window.prompt(`Arm (${measurementUnit}, optional):`, ""));
+    setMeasurements((current) => [...current, {
+      date: getTodayDateInput(),
+      waist: displayToCm(waistDisplay, displaySettings.units),
+      chest: Number.isFinite(chestDisplay) && chestDisplay > 0 ? displayToCm(chestDisplay, displaySettings.units) : undefined,
+      arm: Number.isFinite(armDisplay) && armDisplay > 0 ? displayToCm(armDisplay, displaySettings.units) : undefined,
+    }]);
+  }
+
   function addWeight() {
     const numericWeight = Number(weight);
 
@@ -4675,7 +5660,7 @@ function Progress({
     const newEntry: WeightEntry = {
       id: Date.now(),
       date: weightDate,
-      weight: round1(numericWeight),
+      weight: round1(displayToKg(numericWeight, displaySettings.units)),
     };
 
     setWeightEntries((current) => [
@@ -4696,6 +5681,32 @@ function Progress({
 
   return (
     <>
+      <section className="mb-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-emerald-600">Progress 2.0</p>
+            <h2 className="mt-1 text-2xl font-black">Your performance</h2>
+          </div>
+          <div className="flex rounded-xl bg-slate-100 p-1">
+            {([7,30,90,365,0] as const).map((days) => (
+              <button key={days} onClick={() => setProgressRange(days)} className={`rounded-lg px-3 py-2 text-xs font-bold ${progressRange===days ? "bg-white shadow-sm" : "text-slate-500"}`}>
+                {days === 0 ? "All" : days === 365 ? "1Y" : `${days}D`}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="mt-5 grid gap-3 sm:grid-cols-4">
+          <ProgressMini label="Weight entries" value={sortedWeightEntries.filter((e)=>progressRange===0 || Date.now()-getWeightEntryTime(e)<=progressRange*86400000).length} />
+          <ProgressMini label="Workouts" value={trainingHistory.filter((w)=>inProgressRange(w.finishedAt)).length} />
+          <ProgressMini label="Volume" value={formatWeight(trainingHistory.filter((w)=>inProgressRange(w.finishedAt)).reduce((sum,w)=>sum+w.exercises.reduce((es,e)=>es+e.sets.reduce((ss,set)=>ss+(set.weight||0)*(set.reps||0),0),0),0), displaySettings.units, 0)} />
+          <ProgressMini label="Measurements" value={measurements.length} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <button onClick={()=>setActiveProgressTab("weight")} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold hover:border-emerald-300 hover:bg-emerald-50">+ Log weight</button>
+          <button onClick={()=>setActiveProgressTab("body")} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold hover:border-emerald-300 hover:bg-emerald-50">Body check-in</button>
+        </div>
+      </section>
+
       <p className="text-sm font-semibold tracking-widest text-emerald-600">
         PROGRESS
       </p>
@@ -4710,36 +5721,48 @@ function Progress({
       </p>
 
       <div className="mt-8 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2">
-        <ProgressTabButton
-          name="Body Weight"
-          active={
-            activeProgressTab === "weight"
-          }
-          onClick={() =>
-            setActiveProgressTab("weight")
-          }
-        />
-
-        <ProgressTabButton
-          name="Strength"
-          active={
-            activeProgressTab === "strength"
-          }
-          onClick={() =>
-            setActiveProgressTab("strength")
-          }
-        />
-
-        <ProgressTabButton
-          name="Personal Records"
-          active={
-            activeProgressTab === "records"
-          }
-          onClick={() =>
-            setActiveProgressTab("records")
-          }
-        />
+        <ProgressTabButton name="Overview" active={activeProgressTab === "overview"} onClick={() => setActiveProgressTab("overview")} />
+        <ProgressTabButton name="Body" active={activeProgressTab === "body"} onClick={() => setActiveProgressTab("body")} />
+        <ProgressTabButton name="Body Weight" active={activeProgressTab === "weight"} onClick={() => setActiveProgressTab("weight")} />
+        <ProgressTabButton name="Strength" active={activeProgressTab === "strength"} onClick={() => setActiveProgressTab("strength")} />
+        <ProgressTabButton name="Personal Records" active={activeProgressTab === "records"} onClick={() => setActiveProgressTab("records")} />
       </div>
+
+      {activeProgressTab === "overview" && (
+        <div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
+          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-widest text-emerald-600">Progress overview</p>
+            <h2 className="mt-2 text-2xl font-black">Your trend, not one data point</h2>
+            <div className="mt-6 grid grid-cols-2 gap-3">
+              <ProgressMini label="Weight logs" value={sortedWeightEntries.length} />
+              <ProgressMini label="Workouts" value={trainingHistory.length} />
+              <ProgressMini label="Measurements" value={measurements.length} />
+              <ProgressMini label="Photos" value={progressPhotos.length} />
+            </div>
+            <button onClick={()=>setActiveProgressTab("weight")} className="mt-5 rounded-xl bg-emerald-500 px-5 py-3 text-sm font-black text-white">Open weight trend →</button>
+          </section>
+          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-widest text-slate-400">Latest check-in</p>
+            <p className="mt-3 text-3xl font-black">{sortedWeightEntries.at(-1) ? formatWeight(sortedWeightEntries.at(-1)!.weight, displaySettings.units) : "—"}</p>
+            <p className="mt-2 text-sm text-slate-500">Use 7 / 30 / 90 day views to judge the direction instead of daily noise.</p>
+          </section>
+        </div>
+      )}
+
+      {activeProgressTab === "body" && (
+        <div className="grid gap-5 lg:grid-cols-[.8fr_1.2fr]">
+          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-widest text-emerald-600">Body measurements</p>
+            <h2 className="mt-2 text-2xl font-black">Check-in</h2>
+            <button onClick={addMeasurementQuick} className="mt-5 w-full rounded-xl bg-emerald-500 py-3 text-sm font-black text-white">+ Add measurements</button>
+            <div className="mt-5 space-y-2">{measurements.slice(-4).reverse().map((m,i)=><div key={`${m.date}-${i}`} className="rounded-2xl bg-slate-50 p-3 text-sm"><p className="font-black">{m.date}</p><p className="mt-1 text-slate-500">Waist {m.waist ? formatLength(m.waist, displaySettings.units) : "—"} · Chest {m.chest ? formatLength(m.chest, displaySettings.units) : "—"} · Arm {m.arm ? formatLength(m.arm, displaySettings.units) : "—"}</p></div>)}</div>
+          </section>
+          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex items-center justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-widest text-slate-400">Progress photos</p><h2 className="mt-2 text-2xl font-black">Visual timeline</h2></div><label className="cursor-pointer rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-white">+ Photo<input type="file" accept="image/*" className="hidden" onChange={e=>{void addProgressPhoto(e.target.files?.[0]); e.currentTarget.value="";}}/></label></div>
+            {progressPhotos.length ? <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">{progressPhotos.slice().reverse().map(photo=><div key={photo.id} className="overflow-hidden rounded-2xl bg-slate-100"><img src={photo.dataUrl} alt="Progress" className="aspect-[3/4] w-full object-cover"/><div className="flex items-center justify-between gap-2 p-2"><p className="text-xs font-bold text-slate-500">{photo.date}</p><button type="button" onClick={()=>setProgressPhotos(current=>current.filter(item=>item.id!==photo.id))} className="text-xs font-bold text-red-500">Delete</button></div></div>)}</div> : <div className="mt-5 rounded-2xl bg-slate-50 p-8 text-center text-sm text-slate-500">No progress photos yet.</div>}
+          </section>
+        </div>
+      )}
 
       {activeProgressTab === "weight" && (
         <>
@@ -4748,7 +5771,7 @@ function Progress({
               label="Current weight"
               value={
                 latest
-                  ? `${latest.weight} kg`
+                  ? formatWeight(latest.weight, displaySettings.units)
                   : "—"
               }
               detail={
@@ -4764,7 +5787,7 @@ function Progress({
               label="Total change"
               value={
                 sortedWeightEntries.length >= 2
-                  ? `${change > 0 ? "+" : ""}${change} kg`
+                  ? signedWeight(change)
                   : "—"
               }
               detail={
@@ -4780,9 +5803,7 @@ function Progress({
               label="Last change"
               value={
                 recentChange !== null
-                  ? `${
-                      recentChange > 0 ? "+" : ""
-                    }${recentChange} kg`
+                  ? signedWeight(recentChange)
                   : "—"
               }
               detail="Compared with previous entry"
@@ -4814,13 +5835,13 @@ function Progress({
                 points={sortedWeightEntries.map(
                   (entry) => ({
                     id: String(entry.id),
-                    value: entry.weight,
+                    value: displayWeightValue(entry.weight),
                     label: formatShortDate(
                       entry.date
                     ),
                   })
                 )}
-                unit="kg"
+                unit={weightUnitLabel(displaySettings.units)}
                 emptyText="Add your first weight measurement to start the graph."
               />
             </div>
@@ -4860,12 +5881,12 @@ function Progress({
                         addWeight();
                       }
                     }}
-                    placeholder="88.0"
+                    placeholder={displaySettings.units === "imperial" ? "194.0" : "88.0"}
                     className="w-full bg-transparent p-4 outline-none"
                   />
 
                   <span className="pr-4 text-slate-500">
-                    kg
+                    {weightUnitLabel(displaySettings.units)}
                   </span>
                 </div>
               </div>
@@ -4916,7 +5937,7 @@ function Progress({
                     >
                       <div>
                         <p className="font-semibold">
-                          {entry.weight} kg
+                          {formatWeight(entry.weight, displaySettings.units)}
                         </p>
 
                         <p className="text-sm text-slate-500">
@@ -4984,7 +6005,7 @@ function Progress({
             {exerciseOptions.length === 0 ? (
               <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-6 text-slate-500">
                 Finish a workout with logged sets
-                first. BodyPilot will use your
+                first. CYG will use your
                 workout history automatically.
               </div>
             ) : (
@@ -4994,17 +6015,10 @@ function Progress({
                     label="Latest best set"
                     value={
                       strengthData.length > 0
-                        ? `${
-                            strengthData[
-                              strengthData.length -
-                                1
-                            ].weight
-                          } kg × ${
-                            strengthData[
-                              strengthData.length -
-                                1
-                            ].reps
-                          }`
+                        ? `${formatWeight(
+                            strengthData[strengthData.length - 1].weight,
+                            displaySettings.units
+                          )} × ${strengthData[strengthData.length - 1].reps}`
                         : "—"
                     }
                     detail="Best set from latest session"
@@ -5014,12 +6028,10 @@ function Progress({
                     label="Estimated 1RM"
                     value={
                       strengthData.length > 0
-                        ? `${Math.round(
-                            strengthData[
-                              strengthData.length -
-                                1
-                            ].estimated1RM
-                          )} kg`
+                        ? formatEstimated1RM(
+                            strengthData[strengthData.length - 1].estimated1RM,
+                            displaySettings.units
+                          )
                         : "—"
                     }
                     detail="Estimate from weight and reps"
@@ -5039,14 +6051,13 @@ function Progress({
                     points={strengthData.map(
                       (entry) => ({
                         id: entry.id,
-                        value:
-                          entry.estimated1RM,
+                        value: roundEstimated1RM(entry.estimated1RM, displaySettings.units),
                         label: formatShortDate(
                           entry.date
                         ),
                       })
                     )}
-                    unit="kg e1RM"
+                    unit={`${weightUnitLabel(displaySettings.units)} e1RM`}
                     emptyText="No valid sets for this exercise yet."
                   />
                 </div>
@@ -5067,14 +6078,9 @@ function Progress({
                           </span>
 
                           <span className="font-semibold">
-                            {entry.weight} kg ×{" "}
-                            {entry.reps}
+                            {formatWeight(entry.weight, displaySettings.units)} × {entry.reps}
                             <span className="ml-3 text-sm font-normal text-slate-500">
-                              ~
-                              {Math.round(
-                                entry.estimated1RM
-                              )}{" "}
-                              kg e1RM
+                              ~{formatEstimated1RM(entry.estimated1RM, displaySettings.units)} e1RM
                             </span>
                           </span>
                         </div>
@@ -5095,7 +6101,7 @@ function Progress({
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              Best performance BodyPilot can find
+              Best performance CYG can find
               in your workout history.
             </p>
           </div>
@@ -5132,16 +6138,12 @@ function Progress({
                   </div>
 
                   <p className="mt-5 text-3xl font-bold">
-                    {record.weight} kg ×{" "}
-                    {record.reps}
+                    {formatWeight(record.weight, displaySettings.units)} × {record.reps}
                   </p>
 
                   <p className="mt-2 text-sm text-slate-500">
                     Estimated 1RM:{" "}
-                    {Math.round(
-                      record.estimated1RM
-                    )}{" "}
-                    kg
+                    {formatEstimated1RM(record.estimated1RM, displaySettings.units)}
                   </p>
                 </div>
               ))}
@@ -5150,6 +6152,15 @@ function Progress({
         </section>
       )}
     </>
+  );
+}
+
+function ProgressMini({label,value}:{label:string;value:string|number}) {
+  return (
+    <div className="rounded-2xl bg-slate-50 p-4">
+      <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="mt-1 text-xl font-black text-slate-900">{value}</p>
+    </div>
   );
 }
 
@@ -5375,6 +6386,69 @@ function LineChart({
   );
 }
 
+function readMucipesDisplaySettings() {
+  const defaults = {
+    units: "metric" as const,
+    weekStarts: "monday" as const,
+    appearance: "light" as const,
+    energyUnit: "kcal" as const,
+    density: "comfortable" as const,
+    showRir: true,
+    restTimer: true,
+    restSeconds: 120,
+  };
+  if (typeof window === "undefined") return defaults;
+  try {
+    const raw = localStorage.getItem("bodypilot-settings");
+    const parsed = raw ? JSON.parse(raw) : {};
+    return {
+      ...defaults,
+      units: parsed.units === "imperial" ? "imperial" as const : "metric" as const,
+      weekStarts: parsed.weekStarts === "sunday" ? "sunday" as const : "monday" as const,
+      appearance: parsed.appearance === "dark" ? "dark" as const : parsed.appearance === "system" ? "system" as const : "light" as const,
+      energyUnit: parsed.energyUnit === "kj" ? "kj" as const : "kcal" as const,
+      density: parsed.density === "compact" ? "compact" as const : "comfortable" as const,
+      showRir: parsed.showRir !== false,
+      restTimer: parsed.restTimer !== false,
+      restSeconds: typeof parsed.restSeconds === "number" && parsed.restSeconds >= 15 ? Math.round(parsed.restSeconds) : 120,
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+function energyDisplay(kcal: number, unit: "kcal" | "kj") {
+  return unit === "kj" ? Math.round(kcal * 4.184) : Math.round(kcal);
+}
+
+async function compressProgressPhoto(file: File) {
+  const raw = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("Could not read photo"));
+    reader.onerror = () => reject(reader.error ?? new Error("Could not read photo"));
+    reader.readAsDataURL(file);
+  });
+
+  const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not decode photo"));
+    img.src = raw;
+  });
+
+  const maxSide = 1000;
+  const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+  const width = Math.max(1, Math.round(image.width * scale));
+  const height = Math.max(1, Math.round(image.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) return raw;
+  context.drawImage(image, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", 0.72);
+}
+
 function getTodayDateInput() {
   const now = new Date();
   const local = new Date(
@@ -5432,6 +6506,67 @@ function formatShortDate(value: string) {
 
 function round1(value: number) {
   return Math.round(value * 10) / 10;
+}
+
+
+
+function AppNavButton({
+  label,
+  page,
+  activePage,
+  setActivePage,
+}: {
+  label: string;
+  page: Page;
+  activePage: Page;
+  setActivePage: React.Dispatch<React.SetStateAction<Page>>;
+}) {
+  const active =
+    activePage === page ||
+    (page === "profile" && activePage === "progress");
+
+  return (
+    <button
+      onClick={() => setActivePage(page)}
+      className={`rounded-xl px-4 py-2 text-sm font-bold transition ${
+        active
+          ? "bg-white text-slate-950 shadow-sm"
+          : "text-slate-500 hover:text-slate-950"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function MobileNavButton({
+  icon,
+  label,
+  page,
+  activePage,
+  setActivePage,
+}: {
+  icon: string;
+  label: string;
+  page: Page;
+  activePage: Page;
+  setActivePage: React.Dispatch<React.SetStateAction<Page>>;
+}) {
+  const active =
+    activePage === page ||
+    (page === "profile" && activePage === "progress");
+
+  return (
+    <button
+      onClick={() => setActivePage(page)}
+      className={`min-w-[62px] rounded-xl px-2 py-1.5 text-center transition ${
+        active ? "text-emerald-600" : "text-slate-400"
+      }`}
+    >
+      <span className="block text-lg font-black leading-5">{icon}</span>
+      <span className="mt-1 block text-[10px] font-bold">{label}</span>
+    </button>
+  );
 }
 
 function NavButton({

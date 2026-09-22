@@ -5,6 +5,7 @@ import type { Exercise } from "./types";
 // Total exercises: 601
 
 export const defaultExercises: Exercise[] = [
+  { id: "cyg-lever-lying-t-bar-row", name: "Lever Lying T-bar Row", muscleGroup: "Back" },
   { id: "ab-wheel-rollout", name: "Ab Wheel Rollout", muscleGroup: "Abs" },
   { id: "air-bike", name: "Air Bike", muscleGroup: "Other" },
   { id: "archer-pull-ups", name: "Archer Pull Ups", muscleGroup: "Back" },

@@ -65,7 +65,7 @@ export async function GET(request: Request) {
 
     const response = await fetch(url, {
       headers: {
-        "User-Agent": "BodyPilot/0.1",
+        "User-Agent": "CYG/1.0",
       },
     });
 

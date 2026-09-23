@@ -31,7 +31,7 @@ export type WorkoutExercise = {
   exerciseId: string;
   exerciseName: string;
   sets: WorkoutSet[];
-  cardio?: { durationMinutes: number; distanceKm: number; calories?: number; intensity?: "easy" | "moderate" | "hard" };
+  cardio?: { durationMinutes: number; distanceKm: number; loadKg?: number; calories?: number; intensity?: "easy" | "moderate" | "hard" };
 };
 
 export type ActiveWorkout = {

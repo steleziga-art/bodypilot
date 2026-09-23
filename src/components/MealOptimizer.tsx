@@ -730,8 +730,8 @@ export default function MealOptimizer({
   }
 
   return (
-    <section className="mt-4 rounded-3xl border border-green-400/30 bg-white p-6 md:p-8">
-      <p className="text-sm font-semibold tracking-widest text-green-400">
+    <section className="mt-4 rounded-3xl border border-blue-400/30 bg-white p-6 md:p-8">
+      <p className="text-sm font-semibold tracking-widest text-blue-400">
         CYG MEAL OPTIMIZER
       </p>
 
@@ -766,7 +766,7 @@ export default function MealOptimizer({
               setAddOpen(!addOpen);
               setError("");
             }}
-            className="rounded-xl bg-green-400 px-5 py-3 font-semibold text-black transition hover:bg-green-300"
+            className="rounded-xl bg-blue-400 px-5 py-3 font-semibold text-white transition hover:bg-blue-300"
           >
             + Add food
           </button>
@@ -807,7 +807,7 @@ export default function MealOptimizer({
                         setResult(null);
                         setAlternatives([]);
                       }}
-                      className={`rounded-lg px-3 py-2 text-xs font-black ${lockedIds.includes(food.id) ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}
+                      className={`rounded-lg px-3 py-2 text-xs font-black ${lockedIds.includes(food.id) ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}
                     >
                       {lockedIds.includes(food.id) ? "Locked" : "Lock"}
                     </button>
@@ -821,7 +821,7 @@ export default function MealOptimizer({
       </div>
 
       {addOpen && (
-        <div className="mt-4 rounded-2xl border border-green-400/30 bg-white p-5">
+        <div className="mt-4 rounded-2xl border border-blue-400/30 bg-white p-5">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h3 className="text-lg font-semibold">
@@ -838,7 +838,7 @@ export default function MealOptimizer({
               onClick={() =>
                 setAddOpen(false)
               }
-              className="text-slate-500 hover:text-emerald-600"
+              className="text-slate-500 hover:text-blue-600"
             >
               Close
             </button>
@@ -852,7 +852,7 @@ export default function MealOptimizer({
               }}
               className={`rounded-lg px-3 py-3 text-sm font-semibold ${
                 addMode === "search"
-                  ? "bg-green-400 text-black"
+                  ? "bg-blue-400 text-white"
                   : "text-slate-500"
               }`}
             >
@@ -866,7 +866,7 @@ export default function MealOptimizer({
               }}
               className={`rounded-lg px-3 py-3 text-sm font-semibold ${
                 addMode === "barcode"
-                  ? "bg-green-400 text-black"
+                  ? "bg-blue-400 text-white"
                   : "text-slate-500"
               }`}
             >
@@ -880,7 +880,7 @@ export default function MealOptimizer({
               }}
               className={`rounded-lg px-3 py-3 text-sm font-semibold ${
                 addMode === "my-foods"
-                  ? "bg-green-400 text-black"
+                  ? "bg-blue-400 text-white"
                   : "text-slate-500"
               }`}
             >
@@ -906,13 +906,13 @@ export default function MealOptimizer({
                     }
                   }}
                   placeholder="Chicken breast, rice, oats..."
-                  className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white p-4 outline-none focus:border-green-400"
+                  className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white p-4 outline-none focus:border-blue-400"
                 />
 
                 <button
                   onClick={searchUSDA}
                   disabled={loading}
-                  className="rounded-xl bg-green-400 px-5 font-semibold text-black disabled:opacity-50"
+                  className="rounded-xl bg-blue-400 px-5 font-semibold text-white disabled:opacity-50"
                 >
                   {loading
                     ? "Searching..."
@@ -976,7 +976,7 @@ export default function MealOptimizer({
                             disabled={
                               alreadyAdded
                             }
-                            className="shrink-0 rounded-lg border border-green-400 px-3 py-2 text-sm font-semibold text-green-400 disabled:border-slate-200 disabled:text-zinc-600"
+                            className="shrink-0 rounded-lg border border-blue-400 px-3 py-2 text-sm font-semibold text-blue-400 disabled:border-slate-200 disabled:text-zinc-600"
                           >
                             {alreadyAdded
                               ? "Added"
@@ -1009,13 +1009,13 @@ export default function MealOptimizer({
                     }
                   }}
                   placeholder="Enter barcode"
-                  className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white p-4 outline-none focus:border-green-400"
+                  className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white p-4 outline-none focus:border-blue-400"
                 />
 
                 <button
                   onClick={searchBarcode}
                   disabled={loading}
-                  className="rounded-xl bg-green-400 px-5 font-semibold text-black disabled:opacity-50"
+                  className="rounded-xl bg-blue-400 px-5 font-semibold text-white disabled:opacity-50"
                 >
                   {loading
                     ? "Searching..."
@@ -1043,7 +1043,7 @@ export default function MealOptimizer({
                     onClick={
                       addBarcodeProduct
                     }
-                    className="mt-4 rounded-lg border border-green-400 px-4 py-2 text-sm font-semibold text-green-400"
+                    className="mt-4 rounded-lg border border-blue-400 px-4 py-2 text-sm font-semibold text-blue-400"
                   >
                     Add to Foods available
                   </button>
@@ -1106,7 +1106,7 @@ export default function MealOptimizer({
                           disabled={
                             alreadyAdded
                           }
-                          className="shrink-0 rounded-lg border border-green-400 px-3 py-2 text-sm font-semibold text-green-400 disabled:border-slate-200 disabled:text-zinc-600"
+                          className="shrink-0 rounded-lg border border-blue-400 px-3 py-2 text-sm font-semibold text-blue-400 disabled:border-slate-200 disabled:text-zinc-600"
                         >
                           {alreadyAdded
                             ? "Added"
@@ -1140,7 +1140,7 @@ export default function MealOptimizer({
             setTargetCarbs(carbsRemaining > 0 ? String(Math.round(carbsRemaining)) : "");
             setTargetFat(fatRemaining > 0 ? String(Math.round(fatRemaining)) : "");
             setResult(null); setAlternatives([]);
-          }} className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-700">Use remaining today</button>
+          }} className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-700">Use remaining today</button>
         </div>
 
         <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-1">
@@ -1149,7 +1149,7 @@ export default function MealOptimizer({
             ["protein", "High protein"],
             ["quick", "Quick meal"],
           ] as [OptimizerMode, string][]).map(([value, label]) => (
-            <button key={value} type="button" onClick={() => { setMode(value); setResult(null); setAlternatives([]); }} className={`rounded-lg px-2 py-3 text-xs font-black ${mode === value ? "bg-white text-emerald-700 shadow-sm" : "text-slate-500"}`}>{label}</button>
+            <button key={value} type="button" onClick={() => { setMode(value); setResult(null); setAlternatives([]); }} className={`rounded-lg px-2 py-3 text-xs font-black ${mode === value ? "bg-white text-blue-700 shadow-sm" : "text-slate-500"}`}>{label}</button>
           ))}
         </div>
 
@@ -1166,7 +1166,7 @@ export default function MealOptimizer({
                 );
                 setResult(null);
               }}
-              className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-4 text-slate-900 outline-none focus:border-green-400"
+              className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-4 text-slate-900 outline-none focus:border-blue-400"
             />
           </label>
 
@@ -1182,7 +1182,7 @@ export default function MealOptimizer({
                 );
                 setResult(null);
               }}
-              className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-4 text-slate-900 outline-none focus:border-green-400"
+              className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-4 text-slate-900 outline-none focus:border-blue-400"
             />
           </label>
         </div>
@@ -1191,7 +1191,7 @@ export default function MealOptimizer({
           onClick={() =>
             setAdvanced(!advanced)
           }
-          className="mt-4 text-sm font-semibold text-green-400"
+          className="mt-4 text-sm font-semibold text-blue-400"
         >
           {advanced
             ? "Hide advanced targets"
@@ -1212,7 +1212,7 @@ export default function MealOptimizer({
                   );
                   setResult(null);
                 }}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-4 text-slate-900 outline-none focus:border-green-400"
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-4 text-slate-900 outline-none focus:border-blue-400"
               />
             </label>
 
@@ -1228,7 +1228,7 @@ export default function MealOptimizer({
                   );
                   setResult(null);
                 }}
-                className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-4 text-slate-900 outline-none focus:border-green-400"
+                className="mt-2 w-full rounded-xl border border-slate-200 bg-white p-4 text-slate-900 outline-none focus:border-blue-400"
               />
             </label>
           </div>
@@ -1236,7 +1236,7 @@ export default function MealOptimizer({
 
         <button
           onClick={runOptimizer}
-          className="mt-5 w-full rounded-xl bg-green-400 p-4 font-bold text-black transition hover:bg-green-300"
+          className="mt-5 w-full rounded-xl bg-blue-400 p-4 font-bold text-white transition hover:bg-blue-300"
         >
           Optimize meal
         </button>
@@ -1249,7 +1249,7 @@ export default function MealOptimizer({
       </div>
 
       {result && resultTotals && (
-        <div className="mt-6 rounded-2xl border border-green-400/30 bg-white p-5">
+        <div className="mt-6 rounded-2xl border border-blue-400/30 bg-white p-5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <p className="text-sm text-slate-500">
@@ -1262,7 +1262,7 @@ export default function MealOptimizer({
             </div>
 
             <div className="flex items-center gap-2">
-              <span className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-700">{result.match}% match</span>
+              <span className="rounded-xl bg-blue-50 px-3 py-2 text-sm font-black text-blue-700">{result.match}% match</span>
               {alternatives.length > 1 && <button type="button" onClick={() => showAlternative(alternativeIndex + 1)} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-black text-slate-600">Another option ↻</button>}
             </div>
           </div>
@@ -1292,7 +1292,7 @@ export default function MealOptimizer({
 
                   <div className="flex items-center gap-1">
                     <button type="button" onClick={() => updateResultGrams(result.items.indexOf(item), item.grams - 25)} className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-sm font-black">−</button>
-                    <input aria-label={`${item.food.name} grams`} type="number" min="0" step="5" value={item.grams} onChange={(event) => updateResultGrams(result.items.indexOf(item), Number(event.target.value) || 0)} className="w-20 rounded-lg border border-slate-200 px-2 py-2 text-center text-base font-black outline-none focus:border-emerald-400" />
+                    <input aria-label={`${item.food.name} grams`} type="number" min="0" step="5" value={item.grams} onChange={(event) => updateResultGrams(result.items.indexOf(item), Number(event.target.value) || 0)} className="w-20 rounded-lg border border-slate-200 px-2 py-2 text-center text-base font-black outline-none focus:border-blue-400" />
                     <button type="button" onClick={() => updateResultGrams(result.items.indexOf(item), item.grams + 25)} className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-sm font-black">+</button>
                   </div>
                 </div>
@@ -1340,7 +1340,7 @@ export default function MealOptimizer({
                   event.target.value
                 )
               }
-              className="w-full rounded-xl border border-slate-200 bg-white p-4 outline-none focus:border-green-400"
+              className="w-full rounded-xl border border-slate-200 bg-white p-4 outline-none focus:border-blue-400"
             >
               {meals.map((meal) => (
                 <option
@@ -1355,7 +1355,7 @@ export default function MealOptimizer({
 
           <button
             onClick={addResultToDiary}
-            className="mt-4 w-full rounded-xl bg-green-400 p-4 font-bold text-black transition hover:bg-green-300"
+            className="mt-4 w-full rounded-xl bg-blue-400 p-4 font-bold text-white transition hover:bg-blue-300"
           >
             Add optimized meal to today
           </button>

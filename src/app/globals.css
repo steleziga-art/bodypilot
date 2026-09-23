@@ -28,14 +28,14 @@ html[data-mucipes-theme="dark"] body { background: #020617; color: #f8fafc; }
 html[data-mucipes-theme="dark"] .bg-white { background-color: #0f172a !important; }
 html[data-mucipes-theme="dark"] .bg-slate-50 { background-color: #111827 !important; }
 html[data-mucipes-theme="dark"] .bg-slate-100 { background-color: #1e293b !important; }
-html[data-mucipes-theme="dark"] .bg-\[\#f7f9f8\] { background-color: #020617 !important; }
+html[data-mucipes-theme="dark"] .bg-\[\#f7f8f9\] { background-color: #020617 !important; }
 html[data-mucipes-theme="dark"] .text-slate-950,
 html[data-mucipes-theme="dark"] .text-slate-900,
 html[data-mucipes-theme="dark"] .text-slate-800 { color: #f8fafc !important; }
 html[data-mucipes-theme="dark"] .text-slate-700,
 html[data-mucipes-theme="dark"] .text-slate-600,
 html[data-mucipes-theme="dark"] .text-slate-500 { color: #cbd5e1 !important; }
-html[data-mucipes-theme="dark"] .text-slate-400 { color: #94a3b8 !important; }
+html[data-mucipes-theme="dark"] .text-slate-600 { color: #94a3b8 !important; }
 html[data-mucipes-theme="dark"] .border-slate-100,
 html[data-mucipes-theme="dark"] .border-slate-200,
 html[data-mucipes-theme="dark"] .border-slate-300 { border-color: #334155 !important; }
@@ -47,20 +47,35 @@ html[data-mucipes-density="compact"] .rounded-3xl,
 html[data-mucipes-density="compact"] .rounded-\[2rem\] { --mucipes-density-compact: 1; }
 
 
-/* Mucipes Light: one coherent white + green visual language.
-   Modal backdrops with opacity classes are intentionally left dark for contrast. */
-html[data-mucipes-theme="light"] [class~="bg-slate-950"],
-html[data-mucipes-theme="light"] [class~="bg-zinc-950"],
-html[data-mucipes-theme="light"] [class~="bg-zinc-900"] {
-  background-color: #ffffff !important;
-  border-color: #d1fae5 !important;
+
+/* CYG: white surfaces, navy text and blue actions. */
+@theme {
+  --color-blue-50:#eff6ff;
+  --color-blue-100:#dbeafe;
+  --color-blue-200:#bfdbfe;
+  --color-blue-300:#93c5fd;
+  --color-blue-400:#2563eb;
+  --color-blue-500:#1d4ed8;
+  --color-blue-600:#1d4ed8;
+  --color-blue-700:#1e40af;
+  --color-blue-800:#1e3a8a;
+  --color-blue-900:#10275a;
+  --color-blue-950:#071735;
 }
-html[data-mucipes-theme="light"] [class~="bg-slate-950"][class~="text-white"],
-html[data-mucipes-theme="light"] [class~="bg-zinc-950"][class~="text-white"],
-html[data-mucipes-theme="light"] [class~="bg-zinc-900"][class~="text-white"] {
-  color: #0f172a !important;
-}
-html[data-mucipes-theme="light"] [class~="border-zinc-800"],
-html[data-mucipes-theme="light"] [class~="border-zinc-700"] { border-color: #e2e8f0 !important; }
-html[data-mucipes-theme="light"] [class~="text-zinc-400"],
-html[data-mucipes-theme="light"] [class~="text-zinc-500"] { color: #64748b !important; }
+:root{--background:#fff;--foreground:#0f172a;--cyg-primary:#1d4ed8;--cyg-muted:#475569}
+html{scroll-padding-bottom:140px}
+body{background:var(--background);color:var(--foreground)}
+button,a,input,select,textarea{-webkit-tap-highlight-color:transparent}
+button,input,select,textarea{font-family:inherit}
+input::placeholder,textarea::placeholder{color:#64748b;opacity:1}
+:where(button,a,input,select,textarea):focus-visible{outline:2px solid #2563eb;outline-offset:3px}
+:where(button,[role="button"]){touch-action:manipulation}
+:where([class~="bg-blue-400"],[class~="bg-blue-500"],[class~="bg-blue-600"],[class~="bg-blue-700"]){color:white}
+[class~="bg-blue-400"][class~="text-black"],[class~="bg-blue-500"][class~="text-black"],[class~="bg-blue-600"][class~="text-black"]{color:white!important}
+:is([class~="bg-slate-950"],[class~="bg-slate-900"],[class~="bg-blue-950"],[class~="bg-blue-900"],[class~="from-slate-950"]) :is(.text-slate-500,.text-slate-600,.text-gray-600){color:#cbd5e1}
+.cyg-mobile-nav{padding-bottom:max(.5rem,env(safe-area-inset-bottom))}
+.cyg-mobile-nav button{min-width:0;flex:1;min-height:50px;padding:6px 3px}
+.cyg-mobile-nav button span:last-child{font-size:10px;overflow-wrap:anywhere}
+@media(max-width:640px){input:not([type="checkbox"]):not([type="range"]),textarea,select{font-size:16px}main{padding-bottom:env(safe-area-inset-bottom)}}
+
+.mv-training .bg-slate-950 :is(.text-slate-500,.text-slate-600){color:#475569}

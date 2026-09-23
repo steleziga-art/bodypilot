@@ -102,15 +102,15 @@ export default function AccountPanel() {
     return (
       <div className="max-w-2xl space-y-4">
         <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
-          <div className="border-b border-emerald-100 bg-emerald-50 p-6 text-slate-950">
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-400">CYG Cloud</p>
+          <div className="border-b border-blue-100 bg-blue-50 p-6 text-slate-950">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-400">CYG Cloud</p>
             <h2 className="mt-2 text-3xl font-black">You&apos;re signed in.</h2>
             <p className="mt-2 text-sm text-slate-500">Your account session is active on this device.</p>
           </div>
 
           <div className="p-6">
             <div className="flex items-center gap-4">
-              <div className="grid h-14 w-14 place-items-center rounded-2xl bg-emerald-100 text-xl font-black text-emerald-700">
+              <div className="grid h-14 w-14 place-items-center rounded-2xl bg-blue-100 text-xl font-black text-blue-700">
                 {name.slice(0, 1).toUpperCase()}
               </div>
               <div className="min-w-0">
@@ -131,7 +131,7 @@ export default function AccountPanel() {
               </p>
             </div>
 
-            {message && <p className="mt-4 rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{message}</p>}
+            {message && <p className="mt-4 rounded-2xl bg-blue-50 p-3 text-sm font-bold text-blue-800">{message}</p>}
             {error && <p className="mt-4 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>}
 
             <button
@@ -150,8 +150,8 @@ export default function AccountPanel() {
   return (
     <div className="max-w-2xl">
       <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-emerald-100 bg-emerald-50 p-6 text-slate-950">
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-400">CYG Cloud</p>
+        <div className="border-b border-blue-100 bg-blue-50 p-6 text-slate-950">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-400">CYG Cloud</p>
           <h2 className="mt-2 text-3xl font-black">{mode === "login" ? "Welcome back." : "Create your account."}</h2>
           <p className="mt-2 text-sm text-slate-500">
             {mode === "login" ? "Sign in to your CYG account." : "One account for your future training, nutrition and progress sync."}
@@ -167,29 +167,29 @@ export default function AccountPanel() {
           <form onSubmit={submit} className="space-y-4">
             {mode === "signup" && (
               <Field label="Name">
-                <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-emerald-500" />
+                <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-blue-500" />
               </Field>
             )}
             <Field label="Email">
-              <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-emerald-500" />
+              <input type="email" required autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-blue-500" />
             </Field>
             <Field label="Password">
-              <input type="password" required minLength={6} autoComplete={mode === "login" ? "current-password" : "new-password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-emerald-500" />
+              <input type="password" required minLength={6} autoComplete={mode === "login" ? "current-password" : "new-password"} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="At least 6 characters" className="w-full rounded-2xl border border-slate-200 px-4 py-3 outline-none focus:border-blue-500" />
             </Field>
 
-            {message && <p className="rounded-2xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{message}</p>}
+            {message && <p className="rounded-2xl bg-blue-50 p-3 text-sm font-bold text-blue-800">{message}</p>}
             {error && <p className="rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</p>}
 
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 block w-full cursor-pointer rounded-2xl border-2 border-emerald-700 !bg-emerald-600 px-5 py-4 text-center text-base font-black !text-slate-950 shadow-md hover:!bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50" style={{ backgroundColor: "#059669", color: "#020617" }}
+              className="mt-2 block w-full cursor-pointer rounded-2xl border-2 border-blue-700 !bg-blue-600 px-5 py-4 text-center text-base font-black !text-white shadow-md hover:!bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50" style={{ backgroundColor: "#052e96", color: "#020617" }}
             >
               {loading ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}
             </button>
           </form>
 
-          <p className="mt-5 text-xs leading-5 text-slate-400">
+          <p className="mt-5 text-xs leading-5 text-slate-600">
             CYG never needs your Supabase secret/service-role key in the browser. The app uses only the public publishable key from your environment file.
           </p>
         </div>
@@ -203,5 +203,5 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 function StatusCard({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 text-lg font-black text-slate-950">{value}</p><p className="mt-1 text-xs text-slate-500">{detail}</p></div>;
+  return <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-black uppercase tracking-wider text-slate-600">{label}</p><p className="mt-1 text-lg font-black text-slate-950">{value}</p><p className="mt-1 text-xs text-slate-500">{detail}</p></div>;
 }

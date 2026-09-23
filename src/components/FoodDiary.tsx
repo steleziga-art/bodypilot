@@ -116,7 +116,7 @@ export default function FoodDiary({
     <section className="mt-8">
       <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-600">
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-blue-600">
             Daily diary
           </p>
           <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-900">
@@ -130,7 +130,7 @@ export default function FoodDiary({
         <button
           onClick={onCopyYesterday}
           disabled={!hasYesterday}
-          className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-emerald-300 hover:text-emerald-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 shadow-sm transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Copy yesterday
         </button>
@@ -144,19 +144,19 @@ export default function FoodDiary({
               <p className="text-3xl font-black text-slate-900">
                 {Math.round(totals.calories)}
               </p>
-              <p className="pb-1 text-sm font-semibold text-slate-400">
+              <p className="pb-1 text-sm font-semibold text-slate-600">
                 / {goals.calories} kcal
               </p>
             </div>
           </div>
 
           <div className="text-right">
-            <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+            <p className="text-xs font-bold uppercase tracking-wider text-slate-600">
               {remaining.calories >= 0 ? "Remaining" : "Over target"}
             </p>
             <p
               className={`mt-1 text-xl font-black ${
-                remaining.calories >= 0 ? "text-emerald-600" : "text-amber-600"
+                remaining.calories >= 0 ? "text-blue-600" : "text-amber-600"
               }`}
             >
               {Math.abs(Math.round(remaining.calories))} kcal
@@ -218,14 +218,14 @@ export default function FoodDiary({
                   className="min-w-0 flex-1 text-left"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="text-sm text-slate-400">
+                    <span className="text-sm text-slate-600">
                       {collapsed ? "▶" : "▼"}
                     </span>
                     <h3 className="text-lg font-black text-slate-900 sm:text-xl">
                       {meal.name}
                     </h3>
                   </div>
-                  <p className="mt-1 pl-7 text-sm text-slate-400">
+                  <p className="mt-1 pl-7 text-sm text-slate-600">
                     {mealFoods.length} {mealFoods.length === 1 ? "item" : "items"}
                   </p>
                 </button>
@@ -235,7 +235,7 @@ export default function FoodDiary({
                     <p className="font-black text-slate-900">
                       {Math.round(mealTotals.calories)} kcal
                     </p>
-                    <p className="mt-1 text-xs font-medium text-slate-400">
+                    <p className="mt-1 text-xs font-medium text-slate-600">
                       {round1(mealTotals.protein)}g P · {round1(mealTotals.carbs)}g C ·{" "}
                       {round1(mealTotals.fat)}g F
                     </p>
@@ -243,7 +243,7 @@ export default function FoodDiary({
 
                   <button
                     onClick={() => onAddFoodToMeal(meal.id)}
-                    className="rounded-xl bg-emerald-500 px-3 py-2 text-sm font-black text-black transition hover:bg-emerald-400"
+                    className="rounded-xl bg-blue-500 px-3 py-2 text-sm font-black text-white transition hover:bg-blue-400"
                   >
                     + Add
                   </button>
@@ -257,11 +257,11 @@ export default function FoodDiary({
                       onClick={() => onAddFoodToMeal(meal.id)}
                       className="block w-full border-t border-slate-100 p-6 text-left"
                     >
-                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center transition hover:border-emerald-300 hover:bg-emerald-50">
+                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center transition hover:border-blue-300 hover:bg-blue-50">
                         <p className="text-sm font-semibold text-slate-500">
                           No food added yet
                         </p>
-                        <p className="mt-1 text-xs font-semibold text-emerald-600">
+                        <p className="mt-1 text-xs font-semibold text-blue-600">
                           + Add food to {meal.name}
                         </p>
                       </div>
@@ -329,7 +329,7 @@ export default function FoodDiary({
 
                                 <div className="my-1 border-t border-slate-100" />
 
-                                <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-600">
                                   Move to
                                 </p>
 
@@ -370,7 +370,7 @@ export default function FoodDiary({
                   <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-4">
                     <button
                       onClick={() => onAddFoodToMeal(meal.id)}
-                      className="text-sm font-bold text-emerald-600 hover:text-emerald-700"
+                      className="text-sm font-bold text-blue-600 hover:text-blue-700"
                     >
                       + Add food
                     </button>
@@ -412,7 +412,7 @@ export default function FoodDiary({
           <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-bold uppercase tracking-wider text-emerald-600">
+                <p className="text-xs font-bold uppercase tracking-wider text-blue-600">
                   Edit food
                 </p>
                 <h3 className="mt-2 text-xl font-black text-slate-900">
@@ -440,7 +440,7 @@ export default function FoodDiary({
                 onKeyDown={(event) => {
                   if (event.key === "Enter") saveEdit();
                 }}
-                className="min-w-0 flex-1 rounded-xl border border-slate-300 p-4 text-lg font-bold outline-none focus:border-emerald-500"
+                className="min-w-0 flex-1 rounded-xl border border-slate-300 p-4 text-lg font-bold outline-none focus:border-blue-500"
                 autoFocus
               />
               <span className="font-bold text-slate-500">g</span>
@@ -451,7 +451,7 @@ export default function FoodDiary({
                 <button
                   key={amount}
                   onClick={() => setEditAmount(String(amount))}
-                  className="rounded-xl border border-slate-200 py-2 text-sm font-semibold text-slate-600 hover:border-emerald-300"
+                  className="rounded-xl border border-slate-200 py-2 text-sm font-semibold text-slate-600 hover:border-blue-300"
                 >
                   {amount}g
                 </button>
@@ -469,7 +469,7 @@ export default function FoodDiary({
               </button>
               <button
                 onClick={saveEdit}
-                className="flex-1 rounded-xl bg-emerald-500 py-3 font-black text-black hover:bg-emerald-400"
+                className="flex-1 rounded-xl bg-blue-500 py-3 font-black text-white hover:bg-blue-400"
               >
                 Save changes
               </button>
@@ -504,7 +504,7 @@ function SmallStat({
 }) {
   return (
     <div className="rounded-xl bg-slate-50 p-3 text-center">
-      <p className="text-[10px] font-bold uppercase text-slate-400">{label}</p>
+      <p className="text-[10px] font-bold uppercase text-slate-600">{label}</p>
       <p className="mt-1 text-sm font-black text-slate-900">{value}</p>
     </div>
   );
@@ -550,7 +550,7 @@ function Progress({
       }`}
     >
       <div
-        className="h-full rounded-full bg-emerald-500 transition-all"
+        className="h-full rounded-full bg-blue-500 transition-all"
         style={{ width: `${percent}%` }}
       />
     </div>

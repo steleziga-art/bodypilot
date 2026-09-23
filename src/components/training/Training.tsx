@@ -516,11 +516,11 @@ export default function Training() {
       {reviewWorkout&&activeWorkout&&<WorkoutReview workout={activeWorkout} units={displayUnits} onBack={()=>setReviewWorkout(false)} onSave={commitWorkout}/>}
       <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-600">Training</p>
+          <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-600">Training</p>
           <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">CYG</h1>
         </div>
         {!activeWorkout && (
-          <button onClick={startEmptyWorkout} className="rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-emerald-600 active:scale-[.98]">
+          <button onClick={startEmptyWorkout} className="rounded-2xl bg-blue-500 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-blue-600 active:scale-[.98]">
             + Start workout
           </button>
         )}
@@ -937,17 +937,17 @@ function WorkoutTab({
         <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-black uppercase tracking-widest text-slate-400">This week</p>
+              <p className="text-xs font-black uppercase tracking-widest text-slate-600">This week</p>
               <p className="mt-1 text-sm font-bold text-slate-700">{lastSeven.length} workouts · {weeklySets} working sets</p>
             </div>
-            <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">{today.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
+            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">{today.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
           </div>
           <div className="mt-4 grid grid-cols-7 gap-1.5">
             {week.map(({ date, hasWorkout, isToday }) => (
               <div key={date.toISOString()} className={`rounded-2xl px-1 py-2.5 text-center ${isToday ? "bg-slate-950 text-white" : "bg-slate-50 text-slate-600"}`}>
                 <p className="text-[10px] font-black uppercase">{date.toLocaleDateString(undefined, { weekday: "narrow" })}</p>
                 <p className="mt-1 text-sm font-black">{date.getDate()}</p>
-                <div className={`mx-auto mt-1.5 h-1.5 w-1.5 rounded-full ${hasWorkout ? "bg-emerald-500" : isToday ? "bg-slate-600" : "bg-slate-200"}`} />
+                <div className={`mx-auto mt-1.5 h-1.5 w-1.5 rounded-full ${hasWorkout ? "bg-blue-500" : isToday ? "bg-slate-600" : "bg-slate-200"}`} />
               </div>
             ))}
           </div>
@@ -956,30 +956,30 @@ function WorkoutTab({
         <section className="overflow-hidden rounded-[30px] bg-slate-950 p-6 text-white shadow-lg sm:p-7">
           <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
             <div className="max-w-2xl">
-              <span className="inline-flex rounded-full bg-emerald-400/15 px-3 py-1 text-xs font-black uppercase tracking-widest text-emerald-300">{nextRoutine ? "Suggested next session" : "Ready to train"}</span>
+              <span className="inline-flex rounded-full bg-blue-400/15 px-3 py-1 text-xs font-black uppercase tracking-widest text-blue-300">{nextRoutine ? "Suggested next session" : "Ready to train"}</span>
               <h2 className="mt-4 text-3xl font-black tracking-tight">{nextRoutine ? nextRoutine.name : "Start your session"}</h2>
               <p className="mt-2 text-sm leading-6 text-slate-300">{nextRoutine ? `${nextRoutine.exercises.length} exercises · ${nextRoutine.exercises.reduce((n,e)=>n+e.defaultSets,0)} working sets · ~${Math.max(25,nextRoutine.exercises.length*9)} min` : "Build a workout as you go with previous sets, PR detection, RIR and rest timing."}</p>
               {nextRoutine && <div className="mt-5 flex flex-wrap gap-2">{nextRoutine.exercises.slice(0,4).map(ex=><span key={ex.exerciseId} className="rounded-lg bg-white/10 px-3 py-2 text-xs font-bold text-slate-200">{ex.exerciseName}</span>)}</div>}
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">{nextRoutine && <button onClick={()=>startSavedWorkout(nextRoutine)} className="rounded-2xl bg-emerald-400 px-6 py-3.5 text-sm font-black text-slate-950 transition hover:bg-emerald-300 active:scale-[.98]">Start {nextRoutine.name}</button>}<button onClick={startEmptyWorkout} className="rounded-2xl border border-white/15 bg-white/10 px-6 py-3.5 text-sm font-black text-white transition hover:bg-white/15">Empty workout</button></div>
+            <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">{nextRoutine && <button onClick={()=>startSavedWorkout(nextRoutine)} className="rounded-2xl bg-blue-400 px-6 py-3.5 text-sm font-black text-white transition hover:bg-blue-300 active:scale-[.98]">Start {nextRoutine.name}</button>}<button onClick={startEmptyWorkout} className="rounded-2xl border border-white/15 bg-white/10 px-6 py-3.5 text-sm font-black text-white transition hover:bg-white/15">Empty workout</button></div>
           </div>
           <div className="mt-7 grid grid-cols-3 gap-2 border-t border-white/10 pt-5"><div><p className="text-[10px] font-black uppercase tracking-wider text-slate-500">7D sessions</p><p className="mt-1 text-lg font-black">{lastSeven.length}</p></div><div><p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Working sets</p><p className="mt-1 text-lg font-black">{weeklySets}</p></div><div><p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Volume</p><p className="mt-1 truncate text-lg font-black">{formatStoredVolume(recentVolume,displayUnits)}</p></div></div>
         </section>
 
         <section>
           <div className="mb-3 flex items-end justify-between gap-3">
-            <div><p className="text-xs font-black uppercase tracking-widest text-emerald-600">Your training</p><h2 className="mt-1 text-xl font-black text-slate-950">Routines</h2></div>
+            <div><p className="text-xs font-black uppercase tracking-widest text-blue-600">Your training</p><h2 className="mt-1 text-xl font-black text-slate-950">Routines</h2></div>
           </div>
           {savedWorkouts.length ? (
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
               {savedWorkouts.slice(0, 6).map((workout) => {
                 const lastDone = history.find((item) => item.name === workout.name);
                 return (
-                  <button key={workout.id} onClick={() => startSavedWorkout(workout)} className="group rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md">
-                    <div className="flex items-start justify-between gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-emerald-50 text-lg font-black text-emerald-600">M</div><span className="rounded-full border border-slate-200 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500 group-hover:border-emerald-200 group-hover:text-emerald-700">Start</span></div>
+                  <button key={workout.id} onClick={() => startSavedWorkout(workout)} className="group rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md">
+                    <div className="flex items-start justify-between gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-lg font-black text-blue-600">M</div><span className="rounded-full border border-slate-200 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500 group-hover:border-blue-200 group-hover:text-blue-700">Start</span></div>
                     <h3 className="mt-4 text-lg font-black text-slate-950">{workout.name}</h3>
                     <p className="mt-1 text-sm text-slate-500">{workout.exercises.length} exercises · ~{Math.max(25, workout.exercises.length * 9)} min</p>
-                    <p className="mt-3 truncate text-xs font-semibold text-slate-400">{workout.exercises.slice(0, 3).map((e) => e.exerciseName).join(" · ")}{workout.exercises.length > 3 ? " · +more" : ""}</p>
+                    <p className="mt-3 truncate text-xs font-semibold text-slate-600">{workout.exercises.slice(0, 3).map((e) => e.exerciseName).join(" · ")}{workout.exercises.length > 3 ? " · +more" : ""}</p>
                     <p className="mt-4 text-xs font-bold text-slate-500">{lastDone ? `Last trained ${new Date(lastDone.finishedAt).toLocaleDateString()}` : "Not completed yet"}</p>
                   </button>
                 );
@@ -992,15 +992,15 @@ function WorkoutTab({
 
         <section className="grid gap-4 lg:grid-cols-[1.4fr_.6fr]">
           <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between"><h2 className="text-lg font-black text-slate-950">Recent workouts</h2><span className="text-xs font-black text-slate-400">LAST 3</span></div>
+            <div className="flex items-center justify-between"><h2 className="text-lg font-black text-slate-950">Recent workouts</h2><span className="text-xs font-black text-slate-600">LAST 3</span></div>
             {recent.length ? <div className="mt-3 divide-y divide-slate-100">{recent.map((item) => {
               const sets = item.exercises.reduce((n, ex) => n + ex.sets.filter((set) => set.completed).length, 0);
               const volume = item.exercises.reduce((n, ex) => n + ex.sets.filter((set) => set.completed).reduce((v, set) => v + set.weight * set.reps, 0), 0);
-              return <div key={item.id} className="flex items-center justify-between gap-4 py-3"><div className="min-w-0"><p className="truncate font-black text-slate-900">{item.name}</p><p className="mt-1 text-xs font-semibold text-slate-500">{new Date(item.finishedAt).toLocaleDateString()} · {formatDuration(item.durationSeconds)} · {sets} sets</p></div><div className="shrink-0 text-right"><p className="text-sm font-black text-slate-900">{formatStoredVolume(volume, displayUnits)}</p><p className="text-[10px] font-black uppercase tracking-wider text-slate-400">volume</p></div></div>;
+              return <div key={item.id} className="flex items-center justify-between gap-4 py-3"><div className="min-w-0"><p className="truncate font-black text-slate-900">{item.name}</p><p className="mt-1 text-xs font-semibold text-slate-500">{new Date(item.finishedAt).toLocaleDateString()} · {formatDuration(item.durationSeconds)} · {sets} sets</p></div><div className="shrink-0 text-right"><p className="text-sm font-black text-slate-900">{formatStoredVolume(volume, displayUnits)}</p><p className="text-[10px] font-black uppercase tracking-wider text-slate-600">volume</p></div></div>;
             })}</div> : <p className="mt-4 text-sm text-slate-500">Finish your first workout and it will appear here.</p>}
           </div>
-          <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-5">
-            <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Training pulse</p>
+          <div className="rounded-3xl border border-blue-100 bg-blue-50 p-5">
+            <p className="text-xs font-black uppercase tracking-widest text-blue-700">Training pulse</p>
             <p className="mt-3 text-3xl font-black text-slate-950">{lastSeven.length}</p>
             <p className="text-sm font-bold text-slate-700">sessions in 7 days</p>
             <p className="mt-4 text-sm leading-6 text-slate-600">{lastSeven.length >= 3 ? "Strong consistency. Keep progression small and repeatable." : lastSeven.length ? "Good start. Your next completed session builds the trend." : "Your training insights will become useful after a few logged sessions."}</p>
@@ -1356,7 +1356,7 @@ function WorkoutTab({
       <section className="mv-active-head rounded-3xl border border-slate-200 bg-white p-6">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div className="flex-1">
-            <p className="text-sm font-semibold tracking-widest text-green-400">
+            <p className="text-sm font-semibold tracking-widest text-blue-400">
               ACTIVE WORKOUT
             </p>
 
@@ -1371,19 +1371,19 @@ function WorkoutTab({
               placeholder="Workout name"
             />
 
-            <p className="mt-2 text-sm text-slate-400">
+            <p className="mt-2 text-sm text-slate-600">
               Started{" "}
               {formatTime(
                 activeWorkout.startedAt
               )}
             </p>
 
-            <div className="mt-4 inline-flex items-center gap-3 rounded-2xl border border-green-400/20 bg-green-400/10 px-4 py-3">
-              <span className="text-sm font-semibold text-green-400">
+            <div className="mt-4 inline-flex items-center gap-3 rounded-2xl border border-blue-400/20 bg-blue-400/10 px-4 py-3">
+              <span className="text-sm font-semibold text-blue-400">
                 WORKOUT TIME
               </span>
 
-              <span className="font-mono text-xl font-bold text-emerald-700">
+              <span className="font-mono text-xl font-bold text-blue-700">
                 {formatLiveDuration(
                   elapsedSeconds
                 )}
@@ -1472,7 +1472,7 @@ function WorkoutTab({
                           })
                         )
                       }
-                      className="mt-1 text-xs font-semibold text-green-400 hover:text-green-300"
+                      className="mt-1 text-xs font-semibold text-blue-400 hover:text-blue-300"
                     >
                       {openDetailsByExercise[
                         exercise.id
@@ -1481,7 +1481,7 @@ function WorkoutTab({
                         : "Exercise guide"}
                     </button>
 
-                    <p className="mt-2 text-sm text-slate-400">
+                    <p className="mt-2 text-sm text-slate-600">
                       {previous
                         ? `Previous: ${previous}`
                         : "No previous performance"}
@@ -1516,7 +1516,7 @@ function WorkoutTab({
                       />
 
                       <div>
-                        <p className="text-xs font-semibold uppercase tracking-widest text-green-400">
+                        <p className="text-xs font-semibold uppercase tracking-widest text-blue-400">
                           Instructions
                         </p>
                         <p className="mt-2 text-sm leading-6 text-slate-600">
@@ -1525,7 +1525,7 @@ function WorkoutTab({
                           )}
                         </p>
 
-                        <p className="mt-4 text-xs text-slate-400">
+                        <p className="mt-4 text-xs text-slate-600">
                           Start/finish movement guide. Keep the setup stable and use a controlled range of motion.
                         </p>
                       </div>
@@ -1536,7 +1536,7 @@ function WorkoutTab({
                 <div className="mv-set-table">
                   
                   <div
-                    className={`grid gap-2 px-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-400 ${
+                    className={`grid gap-2 px-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-600 ${
                       (showRirByExercise[exercise.id] ?? defaultShowRir)
                         ? "grid-cols-[24px_minmax(54px,1.3fr)_minmax(38px,1fr)_minmax(34px,.8fr)_minmax(30px,.7fr)_28px_16px]"
                         : "grid-cols-[24px_minmax(54px,1.3fr)_minmax(38px,1fr)_minmax(34px,.8fr)_28px_16px]"
@@ -1564,7 +1564,7 @@ function WorkoutTab({
                               : "grid-cols-[24px_minmax(54px,1.3fr)_minmax(38px,1fr)_minmax(34px,.8fr)_28px_16px]"
                           } ${
                             set.completed
-                              ? "border border-green-400/30 bg-green-400/10"
+                              ? "border border-blue-400/30 bg-blue-400/10"
                               : "border border-transparent bg-white"
                           }`}
                         >
@@ -1585,9 +1585,9 @@ function WorkoutTab({
                           </button>
 
                           <button type="button" onClick={() => copyPreviousSet(exercise.id, exercise.exerciseId, index)} title="Copy previous set" className="hidden text-center sm:block">
-                            <p className="text-xs text-slate-400 hover:text-emerald-600">{getPreviousSetText(history, exercise.exerciseId, index, displayUnits)}</p>
+                            <p className="text-xs text-slate-600 hover:text-blue-600">{getPreviousSetText(history, exercise.exerciseId, index, displayUnits)}</p>
                             {progressiveSuggestion(exercise.exerciseId, index) && (
-                              <p className="mt-1 text-[10px] font-bold text-emerald-600">{progressiveSuggestion(exercise.exerciseId, index)?.text}</p>
+                              <p className="mt-1 text-[10px] font-bold text-blue-600">{progressiveSuggestion(exercise.exerciseId, index)?.text}</p>
                             )}
                           </button>
 
@@ -1613,7 +1613,7 @@ function WorkoutTab({
                               }
                               onKeyDown={(event) => { if (event.key === "Enter") focusSetInput(exercise.id, set.id, "reps"); }}
                               placeholder={weightLabel}
-                              className="h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-center text-sm outline-none focus:border-green-400"
+                              className="h-11 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-center text-sm outline-none focus:border-blue-400"
                             />
                             <div className="mv-weight-adjust mt-1 flex justify-center gap-1">
                               <button type="button" onClick={() => quickWeight(exercise.id, set.id, unit === "lb" ? lbToKg(-5) : -2.5)} className="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-600">{unit === "lb" ? "−5" : "−2.5"}</button>
@@ -1648,7 +1648,7 @@ function WorkoutTab({
                               }
                             }}
                             placeholder="reps"
-                            className="h-11 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-center text-sm outline-none focus:border-green-400"
+                            className="h-11 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-center text-sm outline-none focus:border-blue-400"
                           />
 
                           {(showRirByExercise[exercise.id] ?? defaultShowRir) && (
@@ -1677,7 +1677,7 @@ function WorkoutTab({
                                 if (next) focusSetInput(exercise.id, next.id, "weight");
                               }}
                               placeholder="RIR"
-                              className="h-11 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-center text-sm outline-none focus:border-green-400"
+                              className="h-11 min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-center text-sm outline-none focus:border-blue-400"
                             />
                           )}
 
@@ -1700,8 +1700,8 @@ function WorkoutTab({
                             }
                             className={`mx-auto flex h-9 min-w-9 items-center justify-center rounded-lg border px-1 text-xs font-bold ${
                               set.completed
-                                ? "border-green-400 bg-green-400 text-black"
-                                : "border-slate-300 text-slate-400"
+                                ? "border-blue-400 bg-blue-400 text-white"
+                                : "border-slate-300 text-slate-600"
                             }`}
                           >
                             {set.completed &&
@@ -1731,7 +1731,7 @@ function WorkoutTab({
                   </div>
 
                   <details className="mt-4 rounded-xl border border-slate-200 bg-white">
-                    <summary className="cursor-pointer px-4 py-3 text-sm text-slate-400">
+                    <summary className="cursor-pointer px-4 py-3 text-sm text-slate-600">
                       + Exercise note
                     </summary>
 
@@ -1749,7 +1749,7 @@ function WorkoutTab({
                           )
                         }
                         placeholder="e.g. seat 4, wider grip"
-                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-green-400"
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-blue-400"
                       />
                     </div>
                   </details>
@@ -1774,7 +1774,7 @@ function WorkoutTab({
                           })
                         )
                       }
-                      className="rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-400 transition hover:text-white"
+                      className="rounded-xl border border-slate-200 px-4 py-3 text-sm text-slate-600 transition hover:text-white"
                     >
                       {(showRirByExercise[exercise.id] ?? defaultShowRir)
                         ? "Hide RIR"
@@ -1792,7 +1792,7 @@ function WorkoutTab({
         <aside className="h-fit rounded-3xl border border-slate-200 bg-white p-5 xl:sticky xl:top-6">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs font-semibold uppercase tracking-widest text-green-400">
+              <p className="text-xs font-semibold uppercase tracking-widest text-blue-400">
                 Exercise Library
               </p>
               <h3 className="mt-1 text-xl font-bold">
@@ -1800,7 +1800,7 @@ function WorkoutTab({
               </h3>
             </div>
 
-            <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-400">
+            <span className="rounded-full bg-white px-3 py-1 text-xs text-slate-600">
               {filteredExercises.length}
             </span>
           </div>
@@ -1811,7 +1811,7 @@ function WorkoutTab({
               setSearch(event.target.value)
             }
             placeholder="Search exercises..."
-            className="mt-4 w-full rounded-xl border border-slate-300 bg-white p-3 text-sm outline-none focus:border-green-400"
+            className="mt-4 w-full rounded-xl border border-slate-300 bg-white p-3 text-sm outline-none focus:border-blue-400"
           />
 
           <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
@@ -1847,7 +1847,7 @@ function WorkoutTab({
                       libraryExercise
                     )
                   }
-                  className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-green-400/60"
+                  className="flex w-full items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 text-left transition hover:border-blue-400/60"
                 >
                   <div className="shrink-0">
                     <ExerciseMedia
@@ -1860,14 +1860,14 @@ function WorkoutTab({
                     <p className="truncate text-sm font-semibold">
                       {libraryExercise.name}
                     </p>
-                    <p className="mt-0.5 text-xs text-slate-400">
+                    <p className="mt-0.5 text-xs text-slate-600">
                       {
                         libraryExercise.muscleGroup
                       }
                     </p>
                   </div>
 
-                  <span className="text-lg text-green-400">
+                  <span className="text-lg text-blue-400">
                     +
                   </span>
                 </button>
@@ -1881,13 +1881,13 @@ function WorkoutTab({
         onClick={() =>
           setShowExercisePicker(true)
         }
-        className="mt-6 w-full rounded-2xl border border-dashed border-slate-300 p-4 font-semibold text-slate-500 transition hover:border-green-400 hover:bg-white hover:text-white xl:hidden"
+        className="mt-6 w-full rounded-2xl border border-dashed border-slate-300 p-4 font-semibold text-slate-500 transition hover:border-blue-400 hover:bg-white hover:text-white xl:hidden"
       >
         + Add exercise
       </button>
 
       {showExercisePicker && (
-        <section className="mt-5 rounded-3xl border border-green-400/30 bg-white p-6">
+        <section className="mt-5 rounded-3xl border border-blue-400/30 bg-white p-6">
           <div className="flex items-center justify-between gap-4">
             <h2 className="text-2xl font-semibold">
               Add exercise
@@ -1909,7 +1909,7 @@ function WorkoutTab({
               setSearch(event.target.value)
             }
             placeholder="Search exercises..."
-            className="mt-5 w-full rounded-xl border border-slate-300 bg-white p-4 outline-none focus:border-green-400"
+            className="mt-5 w-full rounded-xl border border-slate-300 bg-white p-4 outline-none focus:border-blue-400"
           />
 
           <div className="mt-4 flex flex-wrap gap-2">
@@ -1945,7 +1945,7 @@ function WorkoutTab({
                   onClick={() =>
                     addExercise(exercise)
                   }
-                  className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-green-400/60"
+                  className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-white p-4 text-left transition hover:border-blue-400/60"
                 >
                   <div className="flex items-center gap-3">
                     <ExerciseMedia name={exercise.name} compact />
@@ -1954,13 +1954,13 @@ function WorkoutTab({
                       {exercise.name}
                     </p>
 
-                    <p className="mt-1 text-xs text-slate-400">
+                    <p className="mt-1 text-xs text-slate-600">
                       {exercise.muscleGroup}
                     </p>
                     </div>
                   </div>
 
-                  <span className="text-green-400">
+                  <span className="text-blue-400">
                     Add
                   </span>
                 </button>
@@ -1983,37 +1983,37 @@ function WorkoutTab({
             }
             placeholder="Optional note about this workout..."
             rows={3}
-            className="w-full resize-none rounded-xl border border-slate-300 bg-white p-4 outline-none focus:border-green-400"
+            className="w-full resize-none rounded-xl border border-slate-300 bg-white p-4 outline-none focus:border-blue-400"
           />
         </div>
       </details>
 
       <button
         onClick={() => setShowFinishReview(true)}
-        className="mt-4 w-full rounded-2xl bg-emerald-500 p-5 text-lg font-black text-white transition hover:bg-emerald-600"
+        className="mt-4 w-full rounded-2xl bg-blue-500 p-5 text-lg font-black text-white transition hover:bg-blue-600"
       >
         Review & Finish
       </button>
 
       <div className="mv-workout-actions sticky bottom-3 z-40 mt-4 flex gap-2 rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-xl backdrop-blur xl:hidden">
         <button onClick={() => setShowExercisePicker(true)} className="flex-1 rounded-xl bg-slate-100 py-3 text-sm font-black">+ Exercise</button>
-        <button onClick={() => setShowFinishReview(true)} className="flex-1 rounded-xl bg-emerald-500 py-3 text-sm font-black text-white">Finish</button>
+        <button onClick={() => setShowFinishReview(true)} className="flex-1 rounded-xl bg-blue-500 py-3 text-sm font-black text-white">Finish</button>
       </div>
 
-      {toast && <div className="fixed right-4 top-4 z-[100] rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white shadow-xl">{toast}</div>}
+      {toast && <div className="fixed right-4 top-4 z-[100] rounded-2xl bg-blue-600 px-4 py-3 text-sm font-bold text-white shadow-xl">{toast}</div>}
       {replaceExerciseId && (
         <div className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/40 p-3 sm:items-center">
           <div className="max-h-[85vh] w-full max-w-xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
             <div className="flex items-center justify-between">
-              <div><p className="text-xs font-bold uppercase tracking-widest text-emerald-600">Replace exercise</p><h3 className="mt-1 text-2xl font-black">Choose replacement</h3></div>
+              <div><p className="text-xs font-bold uppercase tracking-widest text-blue-600">Replace exercise</p><h3 className="mt-1 text-2xl font-black">Choose replacement</h3></div>
               <button onClick={() => setReplaceExerciseId(null)} className="h-10 w-10 rounded-xl bg-slate-100 font-black">×</button>
             </div>
-            <input value={replaceSearch} onChange={e=>setReplaceSearch(e.target.value)} placeholder="Search exercises..." className="mt-5 w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-emerald-400"/>
+            <input value={replaceSearch} onChange={e=>setReplaceSearch(e.target.value)} placeholder="Search exercises..." className="mt-5 w-full rounded-xl border border-slate-200 p-3 outline-none focus:border-blue-400"/>
             <div className="mt-4 space-y-2">
               {exercises.filter(e=>e.name.toLowerCase().includes(replaceSearch.toLowerCase())).slice(0,30).map(e=>(
-                <button key={e.id} onClick={()=>replaceExercise(replaceExerciseId,e)} className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 p-3 text-left hover:border-emerald-400">
+                <button key={e.id} onClick={()=>replaceExercise(replaceExerciseId,e)} className="flex w-full items-center gap-3 rounded-2xl border border-slate-200 p-3 text-left hover:border-blue-400">
                   <ExerciseMedia name={e.name} compact />
-                  <div><p className="font-bold">{e.name}</p><p className="text-xs text-slate-400">{e.muscleGroup}</p></div>
+                  <div><p className="font-bold">{e.name}</p><p className="text-xs text-slate-600">{e.muscleGroup}</p></div>
                 </button>
               ))}
             </div>
@@ -2025,7 +2025,7 @@ function WorkoutTab({
         <div className="fixed inset-0 z-[95] flex items-end justify-center bg-slate-950/50 p-3 sm:items-center">
           <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
-              <div><p className="text-xs font-bold uppercase tracking-widest text-emerald-600">Workout review</p><h2 className="mt-1 text-3xl font-black">{activeWorkout.name}</h2></div>
+              <div><p className="text-xs font-bold uppercase tracking-widest text-blue-600">Workout review</p><h2 className="mt-1 text-3xl font-black">{activeWorkout.name}</h2></div>
               <button onClick={()=>setShowFinishReview(false)} className="h-10 w-10 rounded-xl bg-slate-100 font-black">×</button>
             </div>
             <div className="mt-6 grid grid-cols-3 gap-3">
@@ -2033,13 +2033,13 @@ function WorkoutTab({
               <SummaryMetric label="Volume" value={formatStoredVolume(activeWorkout.exercises.reduce((total, item) => total + item.sets.filter(s=>s.completed).reduce((sum,set)=>sum+set.weight*set.reps,0),0), displayUnits)} />
               <SummaryMetric label="Sets" value={activeWorkout.exercises.reduce((total,item)=>total+item.sets.filter(s=>s.completed).length,0)} />
             </div>
-            <div className="mt-6"><p className="text-sm font-black">How did it feel?</p><div className="mt-3 grid grid-cols-5 gap-2">{[1,2,3,4,5].map(n=><button key={n} onClick={()=>setSessionFeeling(n)} className={`rounded-xl py-3 font-black ${sessionFeeling===n?"bg-emerald-500 text-white":"bg-slate-100 text-slate-500"}`}>{n}</button>)}</div></div>
-            <div className="mt-6 rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">CYG summary</p><p className="mt-2 text-sm leading-6 text-slate-600">{activeWorkout.exercises.reduce((t,e)=>t+e.sets.filter(s=>s.completed).length,0)} completed sets across {activeWorkout.exercises.length} exercises.{activeWorkout.exercises.some(e=>e.sets.some(set=>set.completed && isPersonalRecord(history,e.exerciseId,set))) ? " New personal record detected." : ""}</p></div>
+            <div className="mt-6"><p className="text-sm font-black">How did it feel?</p><div className="mt-3 grid grid-cols-5 gap-2">{[1,2,3,4,5].map(n=><button key={n} onClick={()=>setSessionFeeling(n)} className={`rounded-xl py-3 font-black ${sessionFeeling===n?"bg-blue-500 text-white":"bg-slate-100 text-slate-500"}`}>{n}</button>)}</div></div>
+            <div className="mt-6 rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-600">CYG summary</p><p className="mt-2 text-sm leading-6 text-slate-600">{activeWorkout.exercises.reduce((t,e)=>t+e.sets.filter(s=>s.completed).length,0)} completed sets across {activeWorkout.exercises.length} exercises.{activeWorkout.exercises.some(e=>e.sets.some(set=>set.completed && isPersonalRecord(history,e.exerciseId,set))) ? " New personal record detected." : ""}</p></div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <SummaryMetric label="PRs" value={activeWorkout.exercises.reduce((total,e)=>total+e.sets.filter(set=>set.completed && isPersonalRecord(history,e.exerciseId,set)).length,0)} />
               <SummaryMetric label="Exercises" value={activeWorkout.exercises.length} />
             </div>
-            <button onClick={()=>{ localStorage.setItem(`bodypilot-workout-feeling-${activeWorkout.id}`,String(sessionFeeling)); setShowFinishReview(false); finishWorkout(); }} className="mt-6 w-full rounded-2xl bg-emerald-500 py-4 text-lg font-black text-white">Save Workout</button>
+            <button onClick={()=>{ localStorage.setItem(`bodypilot-workout-feeling-${activeWorkout.id}`,String(sessionFeeling)); setShowFinishReview(false); finishWorkout(); }} className="mt-6 w-full rounded-2xl bg-blue-500 py-4 text-lg font-black text-white">Save Workout</button>
           </div>
         </div>
       )}
@@ -2085,18 +2085,18 @@ function SavedWorkoutsTab({
   ];
 
   return <section className="mt-8">
-    <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-600">Training library</p><h2 className="mt-1 text-3xl font-black tracking-tight">Routines</h2><p className="mt-2 max-w-2xl text-slate-500">Build reusable sessions with sets, rep ranges, RIR and rest targets. Everything stays editable.</p></div><button onClick={()=>{setEditingRoutineId(null);setRoutineName("");setBuilderExercises([]);setBuilderOpen(true)}} className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-sm">+ New routine</button></div>
+    <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[.18em] text-blue-600">Training library</p><h2 className="mt-1 text-3xl font-black tracking-tight">Routines</h2><p className="mt-2 max-w-2xl text-slate-500">Build reusable sessions with sets, rep ranges, RIR and rest targets. Everything stays editable.</p></div><button onClick={()=>{setEditingRoutineId(null);setRoutineName("");setBuilderExercises([]);setBuilderOpen(true)}} className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-black text-white shadow-sm">+ New routine</button></div>
 
-    <div className="mt-6 rounded-2xl border border-emerald-100 bg-emerald-50/60 px-4 py-3 text-sm text-emerald-900"><span className="font-black">Built to edit.</span> Push, Pull and Legs are real routines, not locked templates. Change exercises, targets or order — or delete them completely.</div>
+    <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm text-blue-900"><span className="font-black">Built to edit.</span> Push, Pull and Legs are real routines, not locked templates. Change exercises, targets or order — or delete them completely.</div>
 
-    <div className="mt-7 grid gap-5 lg:grid-cols-2">{savedWorkouts.map(workout=><div key={workout.id} className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-4"><div><div className="flex items-center gap-2"><h3 className="text-xl font-black">{workout.name}</h3><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">{workout.exercises.length} exercises</span></div><p className="mt-2 text-sm text-slate-500">{workout.exercises.reduce((n,e)=>n+e.defaultSets,0)} working sets · ready to start</p></div><button onClick={()=>deleteSavedWorkout(workout.id)} title="Delete routine" className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-400 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500">×</button></div><div className="mt-5 divide-y divide-slate-100 rounded-2xl bg-slate-50 px-4">{workout.exercises.map((ex,index)=><div key={`${ex.exerciseId}-${index}`} className="flex items-center gap-3 py-3"><span className="w-5 text-xs font-black text-slate-300">{String(index+1).padStart(2,"0")}</span><span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-800">{ex.exerciseName}</span><span className="text-xs font-bold text-slate-400">{ex.defaultSets} sets</span></div>)}</div><div className="mt-5 grid grid-cols-[1fr_auto_auto] gap-2"><button disabled={Boolean(activeWorkout)} onClick={()=>startSavedWorkout(workout)} className="rounded-xl bg-emerald-500 py-3 font-black text-white disabled:bg-slate-200 disabled:text-slate-400">{activeWorkout?"Workout active":"Start"}</button><button onClick={()=>editRoutine(workout)} className="rounded-xl border border-slate-200 px-4 text-sm font-black">Edit</button><button onClick={()=>duplicateRoutine(workout)} className="rounded-xl border border-slate-200 px-4 text-sm font-black">Copy</button></div></div>)}</div>
+    <div className="mt-7 grid gap-5 lg:grid-cols-2">{savedWorkouts.map(workout=><div key={workout.id} className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-4"><div><div className="flex items-center gap-2"><h3 className="text-xl font-black">{workout.name}</h3><span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500">{workout.exercises.length} exercises</span></div><p className="mt-2 text-sm text-slate-500">{workout.exercises.reduce((n,e)=>n+e.defaultSets,0)} working sets · ready to start</p></div><button onClick={()=>deleteSavedWorkout(workout.id)} title="Delete routine" className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-500">×</button></div><div className="mt-5 divide-y divide-slate-100 rounded-2xl bg-slate-50 px-4">{workout.exercises.map((ex,index)=><div key={`${ex.exerciseId}-${index}`} className="flex items-center gap-3 py-3"><span className="w-5 text-xs font-black text-slate-300">{String(index+1).padStart(2,"0")}</span><span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-800">{ex.exerciseName}</span><span className="text-xs font-bold text-slate-600">{ex.defaultSets} sets</span></div>)}</div><div className="mt-5 grid grid-cols-[1fr_auto_auto] gap-2"><button disabled={Boolean(activeWorkout)} onClick={()=>startSavedWorkout(workout)} className="rounded-xl bg-blue-500 py-3 font-black text-white disabled:bg-slate-200 disabled:text-slate-600">{activeWorkout?"Workout active":"Start"}</button><button onClick={()=>editRoutine(workout)} className="rounded-xl border border-slate-200 px-4 text-sm font-black">Edit</button><button onClick={()=>duplicateRoutine(workout)} className="rounded-xl border border-slate-200 px-4 text-sm font-black">Copy</button></div></div>)}</div>
 
     {builderOpen&&<div className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/45 p-3 sm:items-center"><div className="max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-[32px] bg-white p-6 shadow-2xl">
-      <div className="flex items-start justify-between"><div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-600">Routine Builder</p><h3 className="mt-1 text-3xl font-black">{editingRoutineId ? "Edit routine" : "Design the session"}</h3><p className="mt-1 text-sm text-slate-500">Order exercises, define targets, then save it like any routine you created yourself.</p></div><button onClick={()=>setBuilderOpen(false)} className="h-10 w-10 rounded-xl bg-slate-100 font-black">×</button></div>
-      <input value={routineName} onChange={e=>setRoutineName(e.target.value)} placeholder="Routine name — e.g. Push A" className="mt-5 w-full rounded-2xl border border-slate-200 p-4 text-lg font-bold outline-none focus:border-emerald-400"/>
-      <div className="mt-5 grid gap-5 lg:grid-cols-[1.15fr_.85fr]"><div><div className="flex items-center justify-between"><p className="text-sm font-black">Session order</p><span className="text-xs font-bold text-slate-400">{builderExercises.length} exercises</span></div><div className="mt-3 space-y-3">{builderExercises.map((item,index)=><div key={item.exercise.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><div className="flex flex-col gap-1"><button onClick={()=>moveExercise(index,-1)} className="text-xs text-slate-400">▲</button><button onClick={()=>moveExercise(index,1)} className="text-xs text-slate-400">▼</button></div><ExerciseMedia name={item.exercise.name} compact/><div className="min-w-0"><p className="truncate font-black">{item.exercise.name}</p><p className="text-xs text-slate-400">{item.exercise.muscleGroup}</p></div></div><button onClick={()=>setBuilderExercises(c=>c.filter(x=>x.exercise.id!==item.exercise.id))} className="grid h-8 w-8 place-items-center rounded-lg bg-rose-50 font-black text-rose-500">×</button></div><div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5"><BuilderNumber label="Sets" value={item.sets} onChange={v=>setBuilderExercises(c=>c.map(x=>x.exercise.id===item.exercise.id?{...x,sets:Math.max(1,v)}:x))}/><BuilderNumber label="Min reps" value={item.minReps} onChange={v=>setBuilderExercises(c=>c.map(x=>x.exercise.id===item.exercise.id?{...x,minReps:Math.max(1,v)}:x))}/><BuilderNumber label="Max reps" value={item.maxReps} onChange={v=>setBuilderExercises(c=>c.map(x=>x.exercise.id===item.exercise.id?{...x,maxReps:Math.max(1,v)}:x))}/><BuilderNumber label="RIR" value={item.rir} onChange={v=>setBuilderExercises(c=>c.map(x=>x.exercise.id===item.exercise.id?{...x,rir:Math.max(0,v)}:x))}/><BuilderNumber label="Rest sec" value={item.rest} onChange={v=>setBuilderExercises(c=>c.map(x=>x.exercise.id===item.exercise.id?{...x,rest:Math.max(30,v)}:x))}/></div></div>)}{!builderExercises.length&&<div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-400">Choose exercises from the library on the right.</div>}</div></div>
-      <div className="rounded-2xl bg-slate-50 p-4"><p className="mb-3 text-sm font-black">Exercise library</p><input value={routineSearch} onChange={e=>setRoutineSearch(e.target.value)} placeholder="Search exercise..." className="w-full rounded-xl border border-slate-200 bg-white p-3 outline-none"/><div className="mt-3 max-h-[460px] space-y-2 overflow-y-auto">{exercises.filter(e=>e.name.toLowerCase().includes(routineSearch.toLowerCase())).slice(0,50).map(e=><button key={e.id} onClick={()=>addBuilderExercise(e)} className="flex w-full items-center gap-3 rounded-xl bg-white p-3 text-left hover:ring-1 hover:ring-emerald-400"><ExerciseMedia name={e.name} compact/><div><p className="text-sm font-bold">{e.name}</p><p className="text-xs text-slate-400">{e.muscleGroup}</p></div><span className="ml-auto text-xl text-emerald-500">+</span></button>)}</div></div></div>
-      <div className="mt-6 flex gap-3"><button onClick={()=>setBuilderOpen(false)} className="rounded-2xl border border-slate-200 px-5 py-4 font-black">Cancel</button><button disabled={!routineName.trim()||!builderExercises.length} onClick={saveRoutine} className="flex-1 rounded-2xl bg-emerald-500 py-4 font-black text-white disabled:bg-slate-200 disabled:text-slate-400">{editingRoutineId ? "Save changes" : "Save as routine"}</button></div>
+      <div className="flex items-start justify-between"><div><p className="text-xs font-black uppercase tracking-[.18em] text-blue-600">Routine Builder</p><h3 className="mt-1 text-3xl font-black">{editingRoutineId ? "Edit routine" : "Design the session"}</h3><p className="mt-1 text-sm text-slate-500">Order exercises, define targets, then save it like any routine you created yourself.</p></div><button onClick={()=>setBuilderOpen(false)} className="h-10 w-10 rounded-xl bg-slate-100 font-black">×</button></div>
+      <input value={routineName} onChange={e=>setRoutineName(e.target.value)} placeholder="Routine name — e.g. Push A" className="mt-5 w-full rounded-2xl border border-slate-200 p-4 text-lg font-bold outline-none focus:border-blue-400"/>
+      <div className="mt-5 grid gap-5 lg:grid-cols-[1.15fr_.85fr]"><div><div className="flex items-center justify-between"><p className="text-sm font-black">Session order</p><span className="text-xs font-bold text-slate-600">{builderExercises.length} exercises</span></div><div className="mt-3 space-y-3">{builderExercises.map((item,index)=><div key={item.exercise.id} className="rounded-2xl border border-slate-200 p-4"><div className="flex items-center justify-between gap-3"><div className="flex min-w-0 items-center gap-3"><div className="flex flex-col gap-1"><button onClick={()=>moveExercise(index,-1)} className="text-xs text-slate-600">▲</button><button onClick={()=>moveExercise(index,1)} className="text-xs text-slate-600">▼</button></div><ExerciseMedia name={item.exercise.name} compact/><div className="min-w-0"><p className="truncate font-black">{item.exercise.name}</p><p className="text-xs text-slate-600">{item.exercise.muscleGroup}</p></div></div><button onClick={()=>setBuilderExercises(c=>c.filter(x=>x.exercise.id!==item.exercise.id))} className="grid h-8 w-8 place-items-center rounded-lg bg-rose-50 font-black text-rose-500">×</button></div><div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-5"><BuilderNumber label="Sets" value={item.sets} onChange={v=>setBuilderExercises(c=>c.map(x=>x.exercise.id===item.exercise.id?{...x,sets:Math.max(1,v)}:x))}/><BuilderNumber label="Min reps" value={item.minReps} onChange={v=>setBuilderExercises(c=>c.map(x=>x.exercise.id===item.exercise.id?{...x,minReps:Math.max(1,v)}:x))}/><BuilderNumber label="Max reps" value={item.maxReps} onChange={v=>setBuilderExercises(c=>c.map(x=>x.exercise.id===item.exercise.id?{...x,maxReps:Math.max(1,v)}:x))}/><BuilderNumber label="RIR" value={item.rir} onChange={v=>setBuilderExercises(c=>c.map(x=>x.exercise.id===item.exercise.id?{...x,rir:Math.max(0,v)}:x))}/><BuilderNumber label="Rest sec" value={item.rest} onChange={v=>setBuilderExercises(c=>c.map(x=>x.exercise.id===item.exercise.id?{...x,rest:Math.max(30,v)}:x))}/></div></div>)}{!builderExercises.length&&<div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center text-sm text-slate-600">Choose exercises from the library on the right.</div>}</div></div>
+      <div className="rounded-2xl bg-slate-50 p-4"><p className="mb-3 text-sm font-black">Exercise library</p><input value={routineSearch} onChange={e=>setRoutineSearch(e.target.value)} placeholder="Search exercise..." className="w-full rounded-xl border border-slate-200 bg-white p-3 outline-none"/><div className="mt-3 max-h-[460px] space-y-2 overflow-y-auto">{exercises.filter(e=>e.name.toLowerCase().includes(routineSearch.toLowerCase())).slice(0,50).map(e=><button key={e.id} onClick={()=>addBuilderExercise(e)} className="flex w-full items-center gap-3 rounded-xl bg-white p-3 text-left hover:ring-1 hover:ring-blue-400"><ExerciseMedia name={e.name} compact/><div><p className="text-sm font-bold">{e.name}</p><p className="text-xs text-slate-600">{e.muscleGroup}</p></div><span className="ml-auto text-xl text-blue-500">+</span></button>)}</div></div></div>
+      <div className="mt-6 flex gap-3"><button onClick={()=>setBuilderOpen(false)} className="rounded-2xl border border-slate-200 px-5 py-4 font-black">Cancel</button><button disabled={!routineName.trim()||!builderExercises.length} onClick={saveRoutine} className="flex-1 rounded-2xl bg-blue-500 py-4 font-black text-white disabled:bg-slate-200 disabled:text-slate-600">{editingRoutineId ? "Save changes" : "Save as routine"}</button></div>
     </div></div>}
   </section>;
 }
@@ -2120,17 +2120,17 @@ function HistoryTab({ history, deleteHistoryEntry, displayUnits }: { history: Wo
   const calendarDays=Array.from({length:leadingDays+daysInMonth},(_,index)=>index<leadingDays?null:index-leadingDays+1);
   const workoutDays=new Set(history.map(workout=>{const date=new Date(workout.finishedAt);return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;}));
   return <section className="mt-2">
-    <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-600">Training log</p><h2 className="mt-1 text-3xl font-black tracking-tight">History</h2><p className="mt-2 text-slate-500">Every session, exercise and set — searchable and easy to inspect.</p></div><div className="grid grid-cols-3 gap-2"><WorkoutHeroStat label="This week" value={thisWeek}/><WorkoutHeroStat label="30D sessions" value={last30.length}/><WorkoutHeroStat label="Avg time" value={avg?formatDuration(avg):"—"}/></div></div>
+    <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[.18em] text-blue-600">Training log</p><h2 className="mt-1 text-3xl font-black tracking-tight">History</h2><p className="mt-2 text-slate-500">Every session, exercise and set — searchable and easy to inspect.</p></div><div className="grid grid-cols-3 gap-2"><WorkoutHeroStat label="This week" value={thisWeek}/><WorkoutHeroStat label="30D sessions" value={last30.length}/><WorkoutHeroStat label="Avg time" value={avg?formatDuration(avg):"—"}/></div></div>
     <div className="mt-6 grid gap-5 xl:grid-cols-[.8fr_1.2fr]">
       <div className="rounded-[26px] border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between"><button onClick={()=>setMonthOffset(value=>value-1)} className="grid h-9 w-9 place-items-center rounded-xl bg-slate-50 font-black text-slate-500">‹</button><p className="font-black text-slate-900">{calendarMonth.toLocaleDateString(undefined,{month:"long",year:"numeric"})}</p><button onClick={()=>setMonthOffset(value=>value+1)} className="grid h-9 w-9 place-items-center rounded-xl bg-slate-50 font-black text-slate-500">›</button></div>
-        <div className="mt-5 grid grid-cols-7 gap-1 text-center text-[10px] font-black uppercase text-slate-400">{["M","T","W","T","F","S","S"].map((day,index)=><span key={`${day}-${index}`}>{day}</span>)}</div>
-        <div className="mt-2 grid grid-cols-7 gap-1">{calendarDays.map((day,index)=>{if(!day)return <span key={`empty-${index}`} className="aspect-square"/>;const key=`${calendarMonth.getFullYear()}-${calendarMonth.getMonth()}-${day}`;const trained=workoutDays.has(key);const today=new Date();const isToday=today.getFullYear()===calendarMonth.getFullYear()&&today.getMonth()===calendarMonth.getMonth()&&today.getDate()===day;return <div key={key} className={`relative grid aspect-square place-items-center rounded-xl text-xs font-black ${trained?"bg-emerald-500 text-white":isToday?"border border-emerald-300 bg-emerald-50 text-emerald-700":"text-slate-600"}`}>{day}{trained&&<span className="absolute bottom-1 h-1 w-1 rounded-full bg-white"/>}</div>;})}</div>
-        <p className="mt-4 text-xs font-semibold text-slate-400"><span className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-500"/> Finished workout</p>
+        <div className="mt-5 grid grid-cols-7 gap-1 text-center text-[10px] font-black uppercase text-slate-600">{["M","T","W","T","F","S","S"].map((day,index)=><span key={`${day}-${index}`}>{day}</span>)}</div>
+        <div className="mt-2 grid grid-cols-7 gap-1">{calendarDays.map((day,index)=>{if(!day)return <span key={`empty-${index}`} className="aspect-square"/>;const key=`${calendarMonth.getFullYear()}-${calendarMonth.getMonth()}-${day}`;const trained=workoutDays.has(key);const today=new Date();const isToday=today.getFullYear()===calendarMonth.getFullYear()&&today.getMonth()===calendarMonth.getMonth()&&today.getDate()===day;return <div key={key} className={`relative grid aspect-square place-items-center rounded-xl text-xs font-black ${trained?"bg-blue-500 text-white":isToday?"border border-blue-300 bg-blue-50 text-blue-700":"text-slate-600"}`}>{day}{trained&&<span className="absolute bottom-1 h-1 w-1 rounded-full bg-white"/>}</div>;})}</div>
+        <p className="mt-4 text-xs font-semibold text-slate-600"><span className="mr-1 inline-block h-2 w-2 rounded-full bg-blue-500"/> Finished workout</p>
       </div>
-      <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search workout or exercise..." className="h-full min-h-14 w-full rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-emerald-200"/></div>
+      <div className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search workout or exercise..." className="h-full min-h-14 w-full rounded-xl bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-200"/></div>
     </div>
-    {!filtered.length?<div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center"><p className="font-black text-slate-900">No workouts found</p><p className="mt-1 text-sm text-slate-500">Finished sessions will build your training timeline here.</p></div>:<div className="mt-6 space-y-3">{filtered.map((workout,index)=>{const isOpen=openWorkoutId===workout.id;const v=volume(workout);const s=sets(workout);const prev=filtered[index+1];const delta=prev&&volume(prev)>0?Math.round((v-volume(prev))/volume(prev)*100):null;return <article key={workout.id} className="overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-sm"><button onClick={()=>setOpenWorkoutId(isOpen?null:workout.id)} className="w-full p-5 text-left"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate text-lg font-black text-slate-950">{workout.name}</h3>{delta!==null&&Math.abs(delta)>=2&&<span className={`rounded-full px-2 py-1 text-[10px] font-black ${delta>=0?"bg-emerald-50 text-emerald-700":"bg-slate-100 text-slate-500"}`}>{delta>=0?"+":""}{delta}% volume</span>}</div><p className="mt-1 text-sm text-slate-400">{formatDate(workout.finishedAt)} · {workout.exercises.length} exercises</p></div><span className="text-slate-300">{isOpen?"⌃":"⌄"}</span></div><div className="mt-4 grid grid-cols-3 gap-2"><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase text-slate-400">Duration</p><p className="mt-1 text-sm font-black">{formatDuration(workout.durationSeconds)}</p></div><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase text-slate-400">Sets</p><p className="mt-1 text-sm font-black">{s}</p></div><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase text-slate-400">Volume</p><p className="mt-1 truncate text-sm font-black">{formatStoredVolume(v,displayUnits)}</p></div></div></button>{isOpen&&<div className="border-t border-slate-100 bg-slate-50/60 p-5"><div className="space-y-3">{workout.exercises.map(exercise=><div key={exercise.id} className="rounded-2xl border border-slate-200 bg-white p-4"><div className="flex items-center justify-between"><div><p className="font-black">{exercise.exerciseName}</p><p className="text-xs text-slate-400">{exercise.sets.length} sets</p></div><p className="text-xs font-black text-emerald-600">Best {exercise.sets.length?formatStoredWeight([...exercise.sets].sort((a,b)=>estimated1RM(b.weight,b.reps)-estimated1RM(a.weight,a.reps))[0].weight,displayUnits):"—"}</p></div><div className="mt-3 flex flex-wrap gap-2">{exercise.sets.map((set,i)=><span key={set.id} className="rounded-lg bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700"><span className="mr-1 text-slate-300">{i+1}</span>{formatStoredWeight(set.weight,displayUnits)} × {set.reps}{set.rir!==null?` · ${set.rir} RIR`:""}</span>)}</div></div>)}</div><button onClick={()=>deleteHistoryEntry(workout.id)} className="mt-5 rounded-xl border border-rose-200 bg-white px-4 py-2 text-xs font-black text-rose-500">Delete workout</button></div>}</article>})}</div>}
+    {!filtered.length?<div className="mt-6 rounded-3xl border border-dashed border-slate-300 bg-white p-10 text-center"><p className="font-black text-slate-900">No workouts found</p><p className="mt-1 text-sm text-slate-500">Finished sessions will build your training timeline here.</p></div>:<div className="mt-6 space-y-3">{filtered.map((workout,index)=>{const isOpen=openWorkoutId===workout.id;const v=volume(workout);const s=sets(workout);const prev=filtered[index+1];const delta=prev&&volume(prev)>0?Math.round((v-volume(prev))/volume(prev)*100):null;return <article key={workout.id} className="overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-sm"><button onClick={()=>setOpenWorkoutId(isOpen?null:workout.id)} className="w-full p-5 text-left"><div className="flex items-start justify-between gap-4"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate text-lg font-black text-slate-950">{workout.name}</h3>{delta!==null&&Math.abs(delta)>=2&&<span className={`rounded-full px-2 py-1 text-[10px] font-black ${delta>=0?"bg-blue-50 text-blue-700":"bg-slate-100 text-slate-500"}`}>{delta>=0?"+":""}{delta}% volume</span>}</div><p className="mt-1 text-sm text-slate-600">{formatDate(workout.finishedAt)} · {workout.exercises.length} exercises</p></div><span className="text-slate-300">{isOpen?"⌃":"⌄"}</span></div><div className="mt-4 grid grid-cols-3 gap-2"><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase text-slate-600">Duration</p><p className="mt-1 text-sm font-black">{formatDuration(workout.durationSeconds)}</p></div><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase text-slate-600">Sets</p><p className="mt-1 text-sm font-black">{s}</p></div><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase text-slate-600">Volume</p><p className="mt-1 truncate text-sm font-black">{formatStoredVolume(v,displayUnits)}</p></div></div></button>{isOpen&&<div className="border-t border-slate-100 bg-slate-50/60 p-5"><div className="space-y-3">{workout.exercises.map(exercise=><div key={exercise.id} className="rounded-2xl border border-slate-200 bg-white p-4"><div className="flex items-center justify-between"><div><p className="font-black">{exercise.exerciseName}</p><p className="text-xs text-slate-600">{exercise.sets.length} sets</p></div><p className="text-xs font-black text-blue-600">Best {exercise.sets.length?formatStoredWeight([...exercise.sets].sort((a,b)=>estimated1RM(b.weight,b.reps)-estimated1RM(a.weight,a.reps))[0].weight,displayUnits):"—"}</p></div><div className="mt-3 flex flex-wrap gap-2">{exercise.sets.map((set,i)=><span key={set.id} className="rounded-lg bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700"><span className="mr-1 text-slate-300">{i+1}</span>{formatStoredWeight(set.weight,displayUnits)} × {set.reps}{set.rir!==null?` · ${set.rir} RIR`:""}</span>)}</div></div>)}</div><button onClick={()=>deleteHistoryEntry(workout.id)} className="mt-5 rounded-xl border border-rose-200 bg-white px-4 py-2 text-xs font-black text-rose-500">Delete workout</button></div>}</article>})}</div>}
   </section>;
 }
 
@@ -2243,14 +2243,14 @@ function ExercisesTab({
           onClick={() =>
             setShowCreate(!showCreate)
           }
-          className="rounded-xl bg-green-400 px-5 py-3 font-semibold text-black"
+          className="rounded-xl bg-blue-400 px-5 py-3 font-semibold text-white"
         >
           + Create exercise
         </button>
       </div>
 
       {showCreate && (
-        <div className="mt-6 rounded-3xl border border-green-400/30 bg-white p-6">
+        <div className="mt-6 rounded-3xl border border-blue-400/30 bg-white p-6">
           <h3 className="text-xl font-semibold">
             New exercise
           </h3>
@@ -2264,7 +2264,7 @@ function ExercisesTab({
                 )
               }
               placeholder="Exercise name"
-              className="rounded-xl border border-slate-300 bg-white p-4 outline-none focus:border-green-400"
+              className="rounded-xl border border-slate-300 bg-white p-4 outline-none focus:border-blue-400"
             />
 
             <select
@@ -2275,7 +2275,7 @@ function ExercisesTab({
                     .value as MuscleGroup
                 )
               }
-              className="rounded-xl border border-slate-300 bg-white p-4 outline-none focus:border-green-400"
+              className="rounded-xl border border-slate-300 bg-white p-4 outline-none focus:border-blue-400"
             >
               {muscleGroups.map(
                 (group) => (
@@ -2291,7 +2291,7 @@ function ExercisesTab({
 
             <button
               onClick={createExercise}
-              className="rounded-xl bg-green-400 px-6 font-semibold text-black"
+              className="rounded-xl bg-blue-400 px-6 font-semibold text-white"
             >
               Create
             </button>
@@ -2305,7 +2305,7 @@ function ExercisesTab({
           setSearch(event.target.value)
         }
         placeholder="Search exercises..."
-        className="mt-6 w-full rounded-xl border border-slate-300 bg-white p-4 outline-none focus:border-green-400"
+        className="mt-6 w-full rounded-xl border border-slate-300 bg-white p-4 outline-none focus:border-blue-400"
       />
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -2346,7 +2346,7 @@ function ExercisesTab({
               tabIndex={0}
               onClick={() => setSelectedExercise(exercise)}
               onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedExercise(exercise); }}
-              className="group flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"
+              className="group flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md"
             >
               <div className="flex min-w-0 items-center gap-3">
                 <ExerciseMedia name={exercise.name} compact />
@@ -2355,7 +2355,7 @@ function ExercisesTab({
                   {exercise.name}
                 </p>
 
-                <p className="mt-1 text-sm text-slate-400">
+                <p className="mt-1 text-sm text-slate-600">
                   {exercise.muscleGroup}
                   {isCustom
                     ? " • Custom"
@@ -2377,7 +2377,7 @@ function ExercisesTab({
                   Delete
                 </button>
               )}
-              {!isCustom && <span className="ml-3 text-lg font-black text-emerald-500 transition group-hover:translate-x-0.5">›</span>}
+              {!isCustom && <span className="ml-3 text-lg font-black text-blue-500 transition group-hover:translate-x-0.5">›</span>}
             </div>
           );
         })}
@@ -2387,7 +2387,7 @@ function ExercisesTab({
         <div className="fixed inset-0 z-[95] flex items-end justify-center bg-slate-950/45 p-3 sm:items-center">
           <div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
-              <div><p className="text-xs font-bold uppercase tracking-widest text-emerald-600">Exercise Detail</p><h2 className="mt-1 text-3xl font-black">{selectedExercise.name}</h2><p className="mt-1 text-sm text-slate-400">{selectedExercise.muscleGroup}</p></div>
+              <div><p className="text-xs font-bold uppercase tracking-widest text-blue-600">Exercise Detail</p><h2 className="mt-1 text-3xl font-black">{selectedExercise.name}</h2><p className="mt-1 text-sm text-slate-600">{selectedExercise.muscleGroup}</p></div>
               <button onClick={() => setSelectedExercise(null)} className="h-10 w-10 rounded-xl bg-slate-100 font-black">×</button>
             </div>
             <div className="mt-6 grid gap-6 lg:grid-cols-[.8fr_1.2fr]">
@@ -2421,8 +2421,8 @@ function TabButton({
       onClick={() => setActiveTab(tab)}
       className={`min-w-0 rounded-xl px-2 py-3 text-center text-[10px] font-black uppercase tracking-tight transition sm:px-4 sm:text-sm sm:normal-case ${
         active
-          ? "bg-emerald-500 text-white shadow-sm"
-          : "text-slate-500 hover:bg-emerald-50 hover:text-emerald-700"
+          ? "bg-blue-500 text-white shadow-sm"
+          : "text-slate-500 hover:bg-blue-50 hover:text-blue-700"
       }`}
     >
       <TrainingNavIcon name={name}/><span>{name}</span>
@@ -2444,7 +2444,7 @@ function FilterButton({
       onClick={onClick}
       className={`rounded-full border px-4 py-2 text-sm transition ${
         active
-          ? "border-green-400 bg-green-400 text-black"
+          ? "border-blue-400 bg-blue-400 text-white"
           : "border-slate-300 text-slate-500 hover:text-white"
       }`}
     >
@@ -2642,10 +2642,10 @@ function formatDuration(seconds: number) {
 
 
 function LiveMetric({label,value}:{label:string;value:string|number}) {
-  return <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 font-mono text-sm font-black text-slate-900">{value}</p></div>;
+  return <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-600">{label}</p><p className="mt-1 font-mono text-sm font-black text-slate-900">{value}</p></div>;
 }
 function SummaryMetric({label,value}:{label:string;value:string|number}) {
-  return <div className="rounded-2xl bg-slate-50 p-4 text-center"><p className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p><p className="mt-2 text-lg font-black">{value}</p></div>;
+  return <div className="rounded-2xl bg-slate-50 p-4 text-center"><p className="text-xs font-bold uppercase tracking-wider text-slate-600">{label}</p><p className="mt-2 text-lg font-black">{value}</p></div>;
 }
 function BuilderNumber({label,value,onChange}:{label:string;value:number;onChange:(v:number)=>void}) {
   return <label className="text-xs font-bold text-slate-500">{label}<input type="number" min="1" value={value} onChange={e=>onChange(Number(e.target.value)||1)} className="mt-1 w-full rounded-xl border border-slate-200 p-2 text-center text-sm font-black text-slate-900"/></label>;
@@ -2654,7 +2654,7 @@ function ExerciseProgressMini({history,exerciseId,displayUnits}:{history:Workout
   const performances=history.flatMap(w=>w.exercises.filter(e=>e.exerciseId===exerciseId).flatMap(e=>e.sets.map(set=>({weight:set.weight,reps:set.reps}))));
   const best=performances.reduce((m,p)=>p.weight>m.weight?p:m,{weight:0,reps:0});
   const last=performances[0];
-  return <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Progress</p><div className="mt-3 grid grid-cols-2 gap-2"><div><p className="text-xs text-slate-400">Best</p><p className="font-black">{formatStoredWeight(best.weight||0, displayUnits)}</p></div><div><p className="text-xs text-slate-400">Last</p><p className="font-black">{last?`${formatStoredWeight(last.weight, displayUnits)} × ${last.reps}`:"—"}</p></div></div></div>;
+  return <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-600">Progress</p><div className="mt-3 grid grid-cols-2 gap-2"><div><p className="text-xs text-slate-600">Best</p><p className="font-black">{formatStoredWeight(best.weight||0, displayUnits)}</p></div><div><p className="text-xs text-slate-600">Last</p><p className="font-black">{last?`${formatStoredWeight(last.weight, displayUnits)} × ${last.reps}`:"—"}</p></div></div></div>;
 }
 
 
@@ -2690,8 +2690,8 @@ function ExerciseDetailStats({ history, exerciseId, displayUnits }: { history: W
         {[...sessions].reverse().map((row, index) => {
           const value = estimated1RM(row.best.weight, row.best.reps);
           return <div key={`${row.date}-${index}`} className="flex flex-1 flex-col items-center justify-end gap-2">
-            <span className="text-[9px] font-bold text-slate-400">{Math.round(value)}</span>
-            <div className="w-full rounded-t-lg bg-emerald-400" style={{height:`${Math.max(6,(value/chartMax)*110)}px`}} />
+            <span className="text-[9px] font-bold text-slate-600">{Math.round(value)}</span>
+            <div className="w-full rounded-t-lg bg-blue-400" style={{height:`${Math.max(6,(value/chartMax)*110)}px`}} />
           </div>;
         })}
       </div>
@@ -2701,7 +2701,7 @@ function ExerciseDetailStats({ history, exerciseId, displayUnits }: { history: W
         <span className="text-slate-500">{new Date(row.date).toLocaleDateString()}</span>
         <span className="font-black">{formatStoredWeight(row.best.weight, displayUnits)} × {row.best.reps} · e1RM {formatEstimatedWeight(estimated1RM(row.best.weight,row.best.reps), displayUnits)}</span>
       </div>)}
-      {!sessions.length && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-400">No exercise history yet.</p>}
+      {!sessions.length && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">No exercise history yet.</p>}
     </div>
   </div>;
 }
@@ -2730,28 +2730,28 @@ function AnalyticsTab({ history, exercises, displayUnits }: { history: WorkoutHi
   for(let i=7;i>=0;i--){const start=Date.now()-(i+1)*7*86400000,end=Date.now()-i*7*86400000;const ws=history.filter(w=>{const t=new Date(w.finishedAt).getTime();return t>=start&&t<end});weekly.push({label:`W${8-i}`,count:ws.length,volume:ws.reduce((a,w)=>a+w.exercises.reduce((b,e)=>b+e.sets.reduce((c,set)=>c+set.weight*set.reps,0),0),0)});}
   const maxWeek=Math.max(1,...weekly.map(w=>w.count));
   return <section className="mt-8">
-    <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[.18em] text-emerald-600">Performance center</p><h2 className="mt-1 text-3xl font-black tracking-tight">Progress</h2><p className="mt-2 max-w-2xl text-slate-500">Strength trends, consistency, workload and muscle distribution — built from your actual sessions.</p></div><div className="flex rounded-xl bg-slate-100 p-1">{([30,90,365] as const).map(days=><button key={days} onClick={()=>setRange(days)} className={`rounded-lg px-4 py-2 text-xs font-black ${range===days?"bg-white text-slate-950 shadow-sm":"text-slate-500"}`}>{days===365?"1Y":`${days}D`}</button>)}</div></div>
+    <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-[.18em] text-blue-600">Performance center</p><h2 className="mt-1 text-3xl font-black tracking-tight">Progress</h2><p className="mt-2 max-w-2xl text-slate-500">Strength trends, consistency, workload and muscle distribution — built from your actual sessions.</p></div><div className="flex rounded-xl bg-slate-100 p-1">{([30,90,365] as const).map(days=><button key={days} onClick={()=>setRange(days)} className={`rounded-lg px-4 py-2 text-xs font-black ${range===days?"bg-white text-slate-950 shadow-sm":"text-slate-500"}`}>{days===365?"1Y":`${days}D`}</button>)}</div></div>
     <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><SummaryMetric label="Workouts" value={recent.length}/><SummaryMetric label="Training days" value={trainingDays}/><SummaryMetric label="Working sets" value={totalSets}/><SummaryMetric label="Total volume" value={formatStoredVolume(totalVolume,displayUnits)}/></div>
     <div className="mt-6 grid gap-6 xl:grid-cols-[1.35fr_.65fr]">
-      <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-wider text-slate-400">Strength trend</p><h3 className="mt-1 text-xl font-black">Exercise progression</h3></div><select value={chosen} onChange={e=>setSelectedExercise(e.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none">{exerciseNames.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></div>{performances.length?<><div className="mt-5 flex items-end gap-4"><div><p className="text-3xl font-black">{formatEstimatedWeight(last,displayUnits)}</p><p className="text-xs font-bold text-slate-400">Current estimated 1RM</p></div><span className={`mb-4 rounded-full px-3 py-1 text-xs font-black ${change>=0?"bg-emerald-50 text-emerald-700":"bg-rose-50 text-rose-600"}`}>{change>=0?"+":""}{change.toFixed(1)}%</span></div><div className="mt-6 flex h-40 items-end gap-2 border-b border-slate-100 pb-2">{performances.slice(-14).map((p,i)=>{const h=maxE===minE?70:20+((p.best-minE)/(maxE-minE))*80;return <div key={`${p.date}-${i}`} className="group flex h-full flex-1 items-end"><div title={`${new Date(p.date).toLocaleDateString()} · ${formatEstimatedWeight(p.best,displayUnits)}`} className="w-full rounded-t-md bg-emerald-400 transition hover:bg-emerald-500" style={{height:`${h}%`}}/></div>})}</div><div className="mt-4 grid grid-cols-3 gap-2"><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase text-slate-400">Sessions</p><p className="mt-1 font-black">{performances.length}</p></div><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase text-slate-400">Best e1RM</p><p className="mt-1 font-black">{formatEstimatedWeight(maxE,displayUnits)}</p></div><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase text-slate-400">Last volume</p><p className="mt-1 truncate font-black">{formatStoredVolume(performances.at(-1)?.volume||0,displayUnits)}</p></div></div></>:<p className="mt-8 rounded-2xl bg-slate-50 p-6 text-sm text-slate-400">Log this exercise a few times to unlock its strength curve.</p>}</div>
-      <div className="rounded-[28px] border border-slate-200 bg-slate-950 p-6 text-white shadow-sm"><p className="text-xs font-black uppercase tracking-wider text-emerald-400">Training pulse</p><h3 className="mt-1 text-xl font-black">Consistency</h3><div className="mt-7 flex h-32 items-end gap-2">{weekly.map(w=><div key={w.label} className="flex h-full flex-1 flex-col justify-end gap-2"><div className="rounded-t-md bg-emerald-400" style={{height:`${Math.max(6,(w.count/maxWeek)*100)}%`}}/><p className="text-center text-[9px] font-bold text-slate-500">{w.label}</p></div>)}</div><div className="mt-6 grid grid-cols-2 gap-3"><div className="rounded-2xl bg-white/10 p-4"><p className="text-xs text-slate-400">Avg session</p><p className="mt-1 text-lg font-black">{avgDuration?formatDuration(avgDuration):"—"}</p></div><div className="rounded-2xl bg-white/10 p-4"><p className="text-xs text-slate-400">Per week</p><p className="mt-1 text-lg font-black">{(recent.length/(range/7)).toFixed(1)}</p></div></div></div>
+      <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm"><div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-wider text-slate-600">Strength trend</p><h3 className="mt-1 text-xl font-black">Exercise progression</h3></div><select value={chosen} onChange={e=>setSelectedExercise(e.target.value)} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none">{exerciseNames.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select></div>{performances.length?<><div className="mt-5 flex items-end gap-4"><div><p className="text-3xl font-black">{formatEstimatedWeight(last,displayUnits)}</p><p className="text-xs font-bold text-slate-600">Current estimated 1RM</p></div><span className={`mb-4 rounded-full px-3 py-1 text-xs font-black ${change>=0?"bg-blue-50 text-blue-700":"bg-rose-50 text-rose-600"}`}>{change>=0?"+":""}{change.toFixed(1)}%</span></div><div className="mt-6 flex h-40 items-end gap-2 border-b border-slate-100 pb-2">{performances.slice(-14).map((p,i)=>{const h=maxE===minE?70:20+((p.best-minE)/(maxE-minE))*80;return <div key={`${p.date}-${i}`} className="group flex h-full flex-1 items-end"><div title={`${new Date(p.date).toLocaleDateString()} · ${formatEstimatedWeight(p.best,displayUnits)}`} className="w-full rounded-t-md bg-blue-400 transition hover:bg-blue-500" style={{height:`${h}%`}}/></div>})}</div><div className="mt-4 grid grid-cols-3 gap-2"><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase text-slate-600">Sessions</p><p className="mt-1 font-black">{performances.length}</p></div><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase text-slate-600">Best e1RM</p><p className="mt-1 font-black">{formatEstimatedWeight(maxE,displayUnits)}</p></div><div className="rounded-xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase text-slate-600">Last volume</p><p className="mt-1 truncate font-black">{formatStoredVolume(performances.at(-1)?.volume||0,displayUnits)}</p></div></div></>:<p className="mt-8 rounded-2xl bg-slate-50 p-6 text-sm text-slate-600">Log this exercise a few times to unlock its strength curve.</p>}</div>
+      <div className="rounded-[28px] border border-slate-200 bg-slate-950 p-6 text-white shadow-sm"><p className="text-xs font-black uppercase tracking-wider text-blue-400">Training pulse</p><h3 className="mt-1 text-xl font-black">Consistency</h3><div className="mt-7 flex h-32 items-end gap-2">{weekly.map(w=><div key={w.label} className="flex h-full flex-1 flex-col justify-end gap-2"><div className="rounded-t-md bg-blue-400" style={{height:`${Math.max(6,(w.count/maxWeek)*100)}%`}}/><p className="text-center text-[9px] font-bold text-slate-500">{w.label}</p></div>)}</div><div className="mt-6 grid grid-cols-2 gap-3"><div className="rounded-2xl bg-white/10 p-4"><p className="text-xs text-slate-600">Avg session</p><p className="mt-1 text-lg font-black">{avgDuration?formatDuration(avgDuration):"—"}</p></div><div className="rounded-2xl bg-white/10 p-4"><p className="text-xs text-slate-600">Per week</p><p className="mt-1 text-lg font-black">{(recent.length/(range/7)).toFixed(1)}</p></div></div></div>
     </div>
     <div className="mt-6 grid gap-6 lg:grid-cols-2">
       <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-wider text-slate-400">Workload</p><h3 className="mt-1 text-xl font-black">Weekly muscle targets</h3></div><span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">Target {weeklyTarget}</span></div>
-        <div className="mt-6 space-y-4">{Object.entries(muscleSets).sort((a,b)=>b[1]-a[1]).map(([muscle,sets])=>{const progress=Math.min(100,(sets/weeklyTarget)*100);return <div key={muscle}><div className="flex justify-between text-sm"><span className="font-bold">{muscle}</span><span className="font-bold text-slate-400">{sets} / {weeklyTarget} sets</span></div><div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{width:`${progress}%`}}/></div></div>})}{!Object.keys(muscleSets).length&&<p className="text-sm text-slate-400">Finish workouts to unlock muscle analytics.</p>}</div>
+        <div className="flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-wider text-slate-600">Workload</p><h3 className="mt-1 text-xl font-black">Weekly muscle targets</h3></div><span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">Target {weeklyTarget}</span></div>
+        <div className="mt-6 space-y-4">{Object.entries(muscleSets).sort((a,b)=>b[1]-a[1]).map(([muscle,sets])=>{const progress=Math.min(100,(sets/weeklyTarget)*100);return <div key={muscle}><div className="flex justify-between text-sm"><span className="font-bold">{muscle}</span><span className="font-bold text-slate-600">{sets} / {weeklyTarget} sets</span></div><div className="mt-2 h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-500" style={{width:`${progress}%`}}/></div></div>})}{!Object.keys(muscleSets).length&&<p className="text-sm text-slate-600">Finish workouts to unlock muscle analytics.</p>}</div>
       </div>
-      <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-wider text-slate-400">Muscle map</p><h3 className="mt-1 text-xl font-black">What you trained</h3><p className="mt-2 max-w-xs text-sm leading-6 text-slate-500">Darker green means more completed working sets in the selected period.</p></div><div className="grid grid-cols-2 gap-2 text-center text-[10px] font-black"><MuscleMapTile name="Chest" sets={muscleSets.Chest||0} max={maxMuscle}/><MuscleMapTile name="Back" sets={muscleSets.Back||0} max={maxMuscle}/><MuscleMapTile name="Shoulders" sets={muscleSets.Shoulders||0} max={maxMuscle}/><MuscleMapTile name="Arms" sets={(muscleSets.Biceps||0)+(muscleSets.Triceps||0)} max={maxMuscle}/><MuscleMapTile name="Legs" sets={(muscleSets.Quads||0)+(muscleSets.Hamstrings||0)+(muscleSets.Glutes||0)+(muscleSets.Calves||0)} max={maxMuscle}/><MuscleMapTile name="Abs" sets={muscleSets.Abs||0} max={maxMuscle}/></div></div><div className="mt-5 space-y-3"><InsightRow title={recent.length>=range/14?"Training frequency is established":"Build more consistency"} detail={recent.length?`${recent.length} sessions in the selected period · ${(recent.length/(range/7)).toFixed(1)} per week.`:"Complete your first sessions to establish a baseline."}/><InsightRow title={change>2?"Strength is trending up":change<-2?"Strength trend has dipped":"Strength is stable"} detail={performances.length>=2?`Selected exercise e1RM changed ${change>=0?"+":""}${change.toFixed(1)}% across logged sessions.`:"Choose an exercise with multiple logged sessions for a strength trend."}/></div></div>
+      <div className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm"><div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-wider text-slate-600">Muscle map</p><h3 className="mt-1 text-xl font-black">What you trained</h3><p className="mt-2 max-w-xs text-sm leading-6 text-slate-500">Darker green means more completed working sets in the selected period.</p></div><div className="grid grid-cols-2 gap-2 text-center text-[10px] font-black"><MuscleMapTile name="Chest" sets={muscleSets.Chest||0} max={maxMuscle}/><MuscleMapTile name="Back" sets={muscleSets.Back||0} max={maxMuscle}/><MuscleMapTile name="Shoulders" sets={muscleSets.Shoulders||0} max={maxMuscle}/><MuscleMapTile name="Arms" sets={(muscleSets.Biceps||0)+(muscleSets.Triceps||0)} max={maxMuscle}/><MuscleMapTile name="Legs" sets={(muscleSets.Quads||0)+(muscleSets.Hamstrings||0)+(muscleSets.Glutes||0)+(muscleSets.Calves||0)} max={maxMuscle}/><MuscleMapTile name="Abs" sets={muscleSets.Abs||0} max={maxMuscle}/></div></div><div className="mt-5 space-y-3"><InsightRow title={recent.length>=range/14?"Training frequency is established":"Build more consistency"} detail={recent.length?`${recent.length} sessions in the selected period · ${(recent.length/(range/7)).toFixed(1)} per week.`:"Complete your first sessions to establish a baseline."}/><InsightRow title={change>2?"Strength is trending up":change<-2?"Strength trend has dipped":"Strength is stable"} detail={performances.length>=2?`Selected exercise e1RM changed ${change>=0?"+":""}${change.toFixed(1)}% across logged sessions.`:"Choose an exercise with multiple logged sessions for a strength trend."}/></div></div>
     </div>
   </section>;
 }
 
 function MuscleMapTile({name,sets,max}:{name:string;sets:number;max:number}) {
   const opacity=sets?Math.max(.24,Math.min(1,sets/Math.max(max,1))):.08;
-  return <div className="rounded-2xl border border-emerald-100 p-2" style={{backgroundColor:`rgba(16,185,129,${opacity})`}}><p className="text-slate-900">{name}</p><p className="mt-1 text-[9px] font-bold text-slate-600">{sets} sets</p></div>;
+  return <div className="rounded-2xl border border-blue-100 p-2" style={{backgroundColor:`rgba(16,185,129,${opacity})`}}><p className="text-slate-900">{name}</p><p className="mt-1 text-[9px] font-bold text-slate-600">{sets} sets</p></div>;
 }
 
-function InsightRow({title,detail}:{title:string;detail:string}){return <div className="rounded-2xl bg-slate-50 p-4"><div className="flex gap-3"><span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-emerald-400"/><div><p className="text-sm font-black text-slate-900">{title}</p><p className="mt-1 text-sm leading-5 text-slate-500">{detail}</p></div></div></div>}
+function InsightRow({title,detail}:{title:string;detail:string}){return <div className="rounded-2xl bg-slate-50 p-4"><div className="flex gap-3"><span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-400"/><div><p className="text-sm font-black text-slate-900">{title}</p><p className="mt-1 text-sm leading-5 text-slate-500">{detail}</p></div></div></div>}
 
 function WorkoutV2Chip({title,detail}:{title:string;detail:string}) {
   return (
@@ -2771,7 +2771,7 @@ function WorkoutHeroStat({
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
         {label}
       </p>
       <p className="mt-1 text-lg font-black text-slate-900">{value}</p>

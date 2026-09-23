@@ -346,11 +346,11 @@ export default function NutritionHub({
     <div className="space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-600">Nutrition</p>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Nutrition</p>
           <h1 className="mt-1 text-4xl font-black tracking-tight text-slate-950">Eat with a plan.</h1>
           <p className="mt-2 text-sm text-slate-500">Log fast, see what is left, and keep deeper analysis one tap away.</p>
         </div>
-        <button onClick={() => openAdd("menu")} className="rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-black text-white shadow-sm">+ Add food</button>
+        <button onClick={() => openAdd("menu")} className="rounded-2xl bg-blue-500 px-5 py-3 text-sm font-black text-white shadow-sm">+ Add food</button>
       </header>
 
       <div className="flex rounded-2xl bg-slate-100 p-1">
@@ -367,7 +367,7 @@ export default function NutritionHub({
 
       {removedFood&&<div role="status" className="rounded-xl border p-3 text-sm">Food removed. <button className="ml-3 font-bold text-blue-700" onClick={()=>{addFood(removedFood);setRemovedFood(null)}}>Undo</button><button className="ml-3" aria-label="Dismiss undo" onClick={()=>setRemovedFood(null)}>×</button></div>}
       {diaryMessage && (
-        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+        <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-bold text-blue-800">
           {diaryMessage}
         </div>
       )}
@@ -392,17 +392,17 @@ export default function NutritionHub({
           <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-black uppercase tracking-widest text-slate-400">Today</p>
+                <p className="text-xs font-black uppercase tracking-widest text-slate-600">Today</p>
                 <p className="mt-2 text-4xl font-black text-slate-950">
                   {formatEnergy(caloriesEaten, displaySettings.energyUnit)}
-                  <span className="ml-2 text-lg font-bold text-slate-400">/ {formatEnergy(goals.calories, displaySettings.energyUnit)}</span>
+                  <span className="ml-2 text-lg font-bold text-slate-600">/ {formatEnergy(goals.calories, displaySettings.energyUnit)}</span>
                 </p>
                 <p className="mt-2 text-sm text-slate-500">{formatEnergy(Math.max(0, caloriesRemaining), displaySettings.energyUnit)} remaining</p>
               </div>
               <button onClick={() => setShowGoals((value) => !value)} className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Edit targets</button>
             </div>
             <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100">
-              <div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${caloriePct}%` }} />
+              <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${caloriePct}%` }} />
             </div>
             <div className="mt-5 grid grid-cols-3 gap-3">
               <MacroMini label="Protein" value={proteinEaten} goal={goals.protein} />
@@ -423,7 +423,7 @@ export default function NutritionHub({
                 <GoalField label="Carbs" value={goalCarbs} onChange={setGoalCarbs} unit="g" />
                 <GoalField label="Fat" value={goalFat} onChange={setGoalFat} unit="g" />
               </div>
-              <button onClick={saveGoals} className="mt-4 rounded-xl bg-emerald-500 px-5 py-3 text-sm font-black text-white">Save targets</button>
+              <button onClick={saveGoals} className="mt-4 rounded-xl bg-blue-500 px-5 py-3 text-sm font-black text-white">Save targets</button>
             </section>
           )}
 
@@ -445,7 +445,7 @@ export default function NutritionHub({
                       </div>
                       <p className="mt-1 text-sm text-slate-500">{formatEnergy(totals.calories, displaySettings.energyUnit)} · {round1(totals.protein)} g protein</p>
                     </div>
-                    <span className="text-xl text-slate-400">{expanded ? "⌃" : "⌄"}</span>
+                    <span className="text-xl text-slate-600">{expanded ? "⌃" : "⌄"}</span>
                   </button>
 
                   {expanded && (
@@ -474,10 +474,10 @@ export default function NutritionHub({
                           ))}
                         </div>
                       ) : (
-                        <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-400">Nothing logged yet.</p>
+                        <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">Nothing logged yet.</p>
                       )}
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <button onClick={() => openAdd("menu", meal.id)} className="rounded-xl bg-emerald-500 px-4 py-2.5 text-xs font-black text-white">+ Add food</button>
+                        <button onClick={() => openAdd("menu", meal.id)} className="rounded-xl bg-blue-500 px-4 py-2.5 text-xs font-black text-white">+ Add food</button>
                         {mealFoods.length > 0 && <button onClick={() => saveMealFromMeal(meal.id)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-black">Save meal</button>}
                         {mealFoods.length > 0 && <button onClick={() => createRecipeFromMeal(meal.id)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-black">Save recipe</button>}
                         {mealFoods.length > 0 && <button onClick={() => duplicateMeal(meal.id)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-xs font-black">Duplicate</button>}
@@ -500,7 +500,7 @@ export default function NutritionHub({
               <div className="mt-3 flex gap-2">{[250, 500, 750].map((ml) => <button key={ml} onClick={() => setWaterMl((value) => value + ml)} className="flex-1 rounded-xl bg-slate-100 py-2 text-xs font-black">+{ml} ml</button>)}</div>
             </div>
             <div className="grid gap-2 sm:w-52">
-              <button onClick={() => openAdd("optimizer")} className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-left text-sm font-black text-emerald-800">What can I eat? →</button>
+              <button onClick={() => openAdd("optimizer")} className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-left text-sm font-black text-blue-800">What can I eat? →</button>
               <button onClick={() => openAdd("scan")} className="rounded-2xl border border-violet-200 bg-violet-50 px-4 py-3 text-left text-sm font-black text-violet-800">AI Meal Scan →</button>
             </div>
           </section>
@@ -511,8 +511,8 @@ export default function NutritionHub({
           </div>
           {showNewMeal && (
             <div className="flex gap-2 rounded-2xl border border-slate-200 bg-white p-3">
-              <input value={newMealName} onChange={(event) => setNewMealName(event.target.value)} placeholder="Meal name" className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-emerald-500" />
-              <button onClick={createCustomMeal} className="rounded-xl bg-emerald-500 px-4 text-sm font-black text-white">Create</button>
+              <input value={newMealName} onChange={(event) => setNewMealName(event.target.value)} placeholder="Meal name" className="min-w-0 flex-1 rounded-xl border border-slate-200 px-3 py-2 outline-none focus:border-blue-500" />
+              <button onClick={createCustomMeal} className="rounded-xl bg-blue-500 px-4 text-sm font-black text-white">Create</button>
             </div>
           )}
         </>
@@ -537,7 +537,7 @@ export default function NutritionHub({
             <InsightStat label="Calorie adherence" value={nutritionStats.adherence === null ? "—" : `${nutritionStats.adherence}%`} />
           </section>
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-widest text-slate-400">History</p><h2 className="mt-1 text-xl font-black">Recent nutrition</h2></div><span className="text-xs text-slate-400">Auto-saved</span></div>
+            <div className="flex items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-widest text-slate-600">History</p><h2 className="mt-1 text-xl font-black">Recent nutrition</h2></div><span className="text-xs text-slate-600">Auto-saved</span></div>
             <div className="mt-4 space-y-2">
               {[...nutritionHistory].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 14).map((day) => (
                 <div key={day.date} className="grid grid-cols-[1fr_auto] gap-4 rounded-2xl bg-slate-50 p-3 text-sm">
@@ -545,7 +545,7 @@ export default function NutritionHub({
                   <p className="self-center font-black">{formatEnergy(day.calories, displaySettings.energyUnit)}</p>
                 </div>
               ))}
-              {nutritionHistory.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-400">Start logging and your trends will appear here.</p>}
+              {nutritionHistory.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">Start logging and your trends will appear here.</p>}
             </div>
           </section>
         </div>
@@ -558,7 +558,7 @@ export default function NutritionHub({
               {savedMeals.map((meal) => (
                 <div key={meal.id} className="flex items-center gap-3 rounded-2xl bg-slate-50 p-3">
                   <div className="min-w-0 flex-1"><p className="truncate font-black">{meal.name}</p><p className="mt-1 text-xs text-slate-500">{meal.foods.length} foods · {formatEnergy(mealTotals(meal.foods).calories, displaySettings.energyUnit)}</p></div>
-                  <button onClick={() => addSavedMeal(meal, meals[0]?.id)} className="rounded-xl bg-emerald-500 px-3 py-2 text-xs font-black text-white">Add</button>
+                  <button onClick={() => addSavedMeal(meal, meals[0]?.id)} className="rounded-xl bg-blue-500 px-3 py-2 text-xs font-black text-white">Add</button>
                   <button onClick={() => setSavedMeals((current) => current.filter((item) => item.id !== meal.id))} className="rounded-xl bg-white px-3 py-2 text-xs font-black text-rose-500">×</button>
                 </div>
               ))}
@@ -574,16 +574,16 @@ export default function NutritionHub({
             </LibraryCard>
           </section>
           <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-widest text-slate-400">Food library</p><h2 className="mt-1 text-xl font-black">Search, barcode & custom foods</h2><p className="mt-1 text-sm text-slate-500">Use one search surface instead of keeping it open on the daily diary.</p></div><button onClick={() => openAdd("search")} className="rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-white">Open food search</button></div>
+            <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-widest text-slate-600">Food library</p><h2 className="mt-1 text-xl font-black">Search, barcode & custom foods</h2><p className="mt-1 text-sm text-slate-500">Use one search surface instead of keeping it open on the daily diary.</p></div><button onClick={() => openAdd("search")} className="rounded-xl bg-blue-500 px-4 py-3 text-sm font-black text-white">Open food search</button></div>
           </section>
         </div>
       )}
 
       {addOpen && (
         <div className="fixed inset-0 z-[100] flex items-end justify-center bg-slate-950/45 p-2 sm:items-center sm:p-5">
-          <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[2rem] bg-[#f7f9f8] p-4 shadow-2xl sm:p-6">
-            <div className="sticky top-0 z-10 -mx-1 mb-4 flex items-center justify-between gap-3 rounded-2xl bg-[#f7f9f8]/95 px-1 py-2 backdrop-blur">
-              <div><p className="text-xs font-black uppercase tracking-widest text-emerald-600">Add to {meals.find((meal) => meal.id === targetMealId)?.name || "meal"}</p><h2 className="mt-1 text-2xl font-black">{addTitle(addMode)}</h2></div>
+          <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-[2rem] bg-[#f7f8f9] p-4 shadow-2xl sm:p-6">
+            <div className="sticky top-0 z-10 -mx-1 mb-4 flex items-center justify-between gap-3 rounded-2xl bg-[#f7f8f9]/95 px-1 py-2 backdrop-blur">
+              <div><p className="text-xs font-black uppercase tracking-widest text-blue-600">Add to {meals.find((meal) => meal.id === targetMealId)?.name || "meal"}</p><h2 className="mt-1 text-2xl font-black">{addTitle(addMode)}</h2></div>
               <button onClick={closeAdd} className="rounded-xl bg-white px-4 py-2 text-sm font-black shadow-sm">Close</button>
             </div>
 
@@ -624,7 +624,7 @@ export default function NutritionHub({
                   <QuickField label="Carbs (g)" value={quickCarbs} onChange={setQuickCarbs} type="number" />
                   <QuickField label="Fat (g)" value={quickFat} onChange={setQuickFat} type="number" />
                 </div>
-                <button onClick={addQuickFood} className="mt-4 w-full rounded-2xl bg-emerald-500 py-4 font-black text-white">Add quick food</button>
+                <button onClick={addQuickFood} className="mt-4 w-full rounded-2xl bg-blue-500 py-4 font-black text-white">Add quick food</button>
               </section>
             )}
 
@@ -632,7 +632,7 @@ export default function NutritionHub({
               <section className="space-y-3">
                 {savedMeals.map((meal) => (
                   <button key={meal.id} onClick={() => addSavedMeal(meal)} className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm">
-                    <div><p className="font-black">{meal.name}</p><p className="mt-1 text-xs text-slate-500">{meal.foods.length} foods · {formatEnergy(mealTotals(meal.foods).calories, displaySettings.energyUnit)}</p></div><span className="font-black text-emerald-600">+ Add</span>
+                    <div><p className="font-black">{meal.name}</p><p className="mt-1 text-xs text-slate-500">{meal.foods.length} foods · {formatEnergy(mealTotals(meal.foods).calories, displaySettings.energyUnit)}</p></div><span className="font-black text-blue-600">+ Add</span>
                   </button>
                 ))}
                 {!savedMeals.length && <p className="rounded-2xl bg-white p-5 text-sm text-slate-500">No saved meals yet. Save one from Today.</p>}
@@ -655,7 +655,7 @@ export default function NutritionHub({
                 <EditField label="Fat" value={String(editingFood.fat)} onChange={(value) => setEditingFood((food) => food ? { ...food, fat: Number(value) || 0 } : food)} type="number" />
               </div>
             </div>
-            <button onClick={saveEditedFood} className="mt-4 w-full rounded-2xl bg-emerald-500 py-4 font-black text-white">Save changes</button>
+            <button onClick={saveEditedFood} className="mt-4 w-full rounded-2xl bg-blue-500 py-4 font-black text-white">Save changes</button>
           </div>
         </div>
       )}
@@ -671,33 +671,33 @@ function MacroMini({ label, value, goal }: { label: string; value: number; goal:
   const pct = goal > 0 ? Math.min(100, (value / goal) * 100) : 0;
   return (
     <div>
-      <div className="flex justify-between gap-2 text-xs"><span className="font-black text-slate-700">{label}</span><span className="text-slate-400">{Math.round(value)}/{goal}g</span></div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} /></div>
+      <div className="flex justify-between gap-2 text-xs"><span className="font-black text-slate-700">{label}</span><span className="text-slate-600">{Math.round(value)}/{goal}g</span></div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-500" style={{ width: `${pct}%` }} /></div>
     </div>
   );
 }
 
 function GoalField({ label, value, onChange, unit }: { label: string; value: string; onChange: (value: string) => void; unit: string }) {
-  return <label className="block"><span className="text-xs font-black uppercase tracking-wider text-slate-400">{label}</span><div className="mt-1 flex rounded-xl border border-slate-200 bg-white"><input type="number" min="0" value={value} onChange={(event) => onChange(event.target.value)} className="min-w-0 flex-1 rounded-xl bg-transparent px-3 py-3 font-black outline-none"/><span className="self-center pr-3 text-xs font-bold text-slate-400">{unit}</span></div></label>;
+  return <label className="block"><span className="text-xs font-black uppercase tracking-wider text-slate-600">{label}</span><div className="mt-1 flex rounded-xl border border-slate-200 bg-white"><input type="number" min="0" value={value} onChange={(event) => onChange(event.target.value)} className="min-w-0 flex-1 rounded-xl bg-transparent px-3 py-3 font-black outline-none"/><span className="self-center pr-3 text-xs font-bold text-slate-600">{unit}</span></div></label>;
 }
 
 function InsightStat({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-black uppercase tracking-wider text-slate-400">{label}</p><p className="mt-2 text-2xl font-black text-slate-950">{value}</p></div>;
+  return <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><p className="text-xs font-black uppercase tracking-wider text-slate-600">{label}</p><p className="mt-2 text-2xl font-black text-slate-950">{value}</p></div>;
 }
 
 function LibraryCard({ title, detail, empty, children }: { title: string; detail: string; empty: string; children: React.ReactNode }) {
   const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
-  return <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-xl font-black">{title}</h2><p className="mt-1 text-sm text-slate-500">{detail}</p><div className="mt-4 space-y-2">{hasChildren ? children : <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-400">{empty}</p>}</div></section>;
+  return <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><h2 className="text-xl font-black">{title}</h2><p className="mt-1 text-sm text-slate-500">{detail}</p><div className="mt-4 space-y-2">{hasChildren ? children : <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">{empty}</p>}</div></section>;
 }
 
 function AddChoice({ title, detail, onClick }: { title: string; detail: string; onClick: () => void }) {
-  return <button onClick={onClick} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300"><p className="font-black text-slate-950">{title}</p><p className="mt-2 text-sm leading-6 text-slate-500">{detail}</p><span className="mt-4 inline-block text-sm font-black text-emerald-600">Open →</span></button>;
+  return <button onClick={onClick} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300"><p className="font-black text-slate-950">{title}</p><p className="mt-2 text-sm leading-6 text-slate-500">{detail}</p><span className="mt-4 inline-block text-sm font-black text-blue-600">Open →</span></button>;
 }
 
 function QuickField({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: "text" | "number" }) {
-  return <label className="block"><span className="text-xs font-black uppercase tracking-wider text-slate-400">{label}</span><input type={type} min={type === "number" ? 0 : undefined} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500"/></label>;
+  return <label className="block"><span className="text-xs font-black uppercase tracking-wider text-slate-600">{label}</span><input type={type} min={type === "number" ? 0 : undefined} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-blue-500"/></label>;
 }
 
 function EditField({ label, value, onChange, type = "text" }: { label: string; value: string; onChange: (value: string) => void; type?: "text" | "number" }) {
-  return <label className="block"><span className="text-xs font-black uppercase tracking-wider text-slate-400">{label}</span><input type={type} min={type === "number" ? 0 : undefined} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-emerald-500"/></label>;
+  return <label className="block"><span className="text-xs font-black uppercase tracking-wider text-slate-600">{label}</span><input type={type} min={type === "number" ? 0 : undefined} value={value} onChange={(event) => onChange(event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-blue-500"/></label>;
 }

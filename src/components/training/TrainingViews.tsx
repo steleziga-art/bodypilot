@@ -21,9 +21,9 @@ function inRange(h:WorkoutHistoryEntry[],days:number){const end=Date.now();retur
 function Curve({series,unit}:{series:Array<{name:string;points:Array<{t:number;v:number}>}>;unit:string}){
  const points=series.flatMap(s=>s.points);if(!points.length)return <Empty>Complete sets to build your strength trend.</Empty>;
  const minT=Math.min(...points.map(p=>p.t)),maxT=Math.max(...points.map(p=>p.t));const maxV=Math.max(1,...points.map(p=>p.v))*1.1;
- const colors=['#009b48','#67ae83','#164d32'];const x=(t:number)=>42+((t-minT)/(maxT-minT||1))*300,y=(v:number)=>156-v/maxV*130;
+ const colors=['#002b9b','#677bae','#16254d'];const x=(t:number)=>42+((t-minT)/(maxT-minT||1))*300,y=(v:number)=>156-v/maxV*130;
  return <><svg className="mv-chart" viewBox="0 0 360 190" role="img" aria-label={`Estimated strength trend in ${unit}`}>
- {[0,.5,1].map(v=><g key={v}><line x1="42" x2="344" y1={y(v*maxV)} y2={y(v*maxV)} stroke="#edf0ee"/><text x="34" y={y(v*maxV)+3} textAnchor="end">{Math.round(v*maxV)}</text></g>)}
+ {[0,.5,1].map(v=><g key={v}><line x1="42" x2="344" y1={y(v*maxV)} y2={y(v*maxV)} stroke="#edeef0"/><text x="34" y={y(v*maxV)+3} textAnchor="end">{Math.round(v*maxV)}</text></g>)}
  {series.map((s,i)=><g key={s.name}><polyline fill="none" stroke={colors[i%3]} strokeWidth="2.5" points={s.points.map(p=>`${x(p.t)},${y(p.v)}`).join(' ')}/>{s.points.map((p,j)=><circle key={j} cx={x(p.t)} cy={y(p.v)} r="3" fill={colors[i%3]}><title>{new Date(p.t).toLocaleDateString()} · {p.v.toFixed(1)} {unit}</title></circle>)}</g>)}
  <text x="42" y="181">{new Date(minT).toLocaleDateString(undefined,{month:'short',day:'numeric'})}</text><text x="344" y="181" textAnchor="end">{new Date(maxT).toLocaleDateString(undefined,{month:'short',day:'numeric'})}</text></svg><div className="mv-legend">{series.map((s,i)=><span key={s.name}><i style={{background:colors[i%3]}}/>{s.name}</span>)}</div></>;
 }

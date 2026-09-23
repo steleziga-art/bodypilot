@@ -187,7 +187,7 @@ export default function LyftaImport({ exercises, onImport }: Props) {
     <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-black uppercase tracking-widest text-emerald-600">Bring your history</p>
+          <p className="text-xs font-black uppercase tracking-widest text-blue-600">Bring your history</p>
           <h3 className="mt-1 text-lg font-black">Import workouts from CSV</h3>
           <p className="mt-1 text-sm text-slate-500">Works with Lyfta-style workout exports that contain date, exercise, weight and reps columns.</p>
         </div>
@@ -198,7 +198,7 @@ export default function LyftaImport({ exercises, onImport }: Props) {
         <div className="fixed inset-0 z-[95] flex items-end justify-center bg-slate-950/50 p-3 sm:items-center">
           <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
-              <div><p className="text-xs font-black uppercase tracking-widest text-emerald-600">History import</p><h3 className="mt-1 text-2xl font-black">CSV preview</h3></div>
+              <div><p className="text-xs font-black uppercase tracking-widest text-blue-600">History import</p><h3 className="mt-1 text-2xl font-black">CSV preview</h3></div>
               <button type="button" onClick={() => setOpen(false)} className="h-10 w-10 rounded-xl bg-slate-100 font-black">×</button>
             </div>
             <label className="mt-5 block cursor-pointer rounded-2xl border border-dashed border-slate-300 p-6 text-center">
@@ -211,15 +211,15 @@ export default function LyftaImport({ exercises, onImport }: Props) {
             {history.length > 0 && (
               <>
                 <div className="mt-5 grid grid-cols-3 gap-3">
-                  <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-400">Workouts</p><p className="mt-1 text-xl font-black">{history.length}</p></div>
-                  <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-400">Sets</p><p className="mt-1 text-xl font-black">{rows.length}</p></div>
-                  <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-400">Exercises</p><p className="mt-1 text-xl font-black">{new Set(rows.map((row) => row.exercise)).size}</p></div>
+                  <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-600">Workouts</p><p className="mt-1 text-xl font-black">{history.length}</p></div>
+                  <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-600">Sets</p><p className="mt-1 text-xl font-black">{rows.length}</p></div>
+                  <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs text-slate-600">Exercises</p><p className="mt-1 text-xl font-black">{new Set(rows.map((row) => row.exercise)).size}</p></div>
                 </div>
                 <div className="mt-4 space-y-2">
-                  {history.slice(0, 5).map((workout) => <div key={workout.id} className="rounded-xl bg-slate-50 px-4 py-3"><div className="flex justify-between gap-3"><span className="font-bold">{workout.name}</span><span className="text-xs text-slate-400">{new Date(workout.finishedAt).toLocaleDateString()}</span></div><p className="mt-1 text-xs text-slate-500">{workout.exercises.length} exercises</p></div>)}
-                  {history.length > 5 && <p className="text-center text-xs text-slate-400">+ {history.length - 5} more workouts</p>}
+                  {history.slice(0, 5).map((workout) => <div key={workout.id} className="rounded-xl bg-slate-50 px-4 py-3"><div className="flex justify-between gap-3"><span className="font-bold">{workout.name}</span><span className="text-xs text-slate-600">{new Date(workout.finishedAt).toLocaleDateString()}</span></div><p className="mt-1 text-xs text-slate-500">{workout.exercises.length} exercises</p></div>)}
+                  {history.length > 5 && <p className="text-center text-xs text-slate-600">+ {history.length - 5} more workouts</p>}
                 </div>
-                <button type="button" onClick={confirmImport} className="mt-5 w-full rounded-2xl bg-emerald-500 py-3.5 font-black text-white">Import {history.length} workouts</button>
+                <button type="button" onClick={confirmImport} className="mt-5 w-full rounded-2xl bg-blue-500 py-3.5 font-black text-white">Import {history.length} workouts</button>
               </>
             )}
           </div>

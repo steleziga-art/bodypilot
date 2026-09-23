@@ -34,7 +34,7 @@ function inferPose(name: string): Pose {
 
 function Figure({ pose, end = false }: { pose: Pose; end?: boolean }) {
   const stroke = "currentColor";
-  const accent = "#10b981";
+  const accent = "#103fb9";
   const muted = "#94a3b8";
   const sw = 4;
 
@@ -223,7 +223,7 @@ export default function ExerciseIllustration({
   const pose = inferPose(name);
   return (
     <div
-      className={`overflow-hidden rounded-2xl border border-emerald-100 bg-gradient-to-br from-white to-emerald-50/70 ${
+      className={`overflow-hidden rounded-2xl border border-blue-100 bg-gradient-to-br from-white to-blue-50/70 ${
         compact ? "h-12 w-12 shrink-0" : "w-full"
       }`}
       title={`${name} movement illustration`}
@@ -241,7 +241,7 @@ export default function ExerciseIllustration({
         {!compact && (
           <>
             <path d="M73 58h14" stroke="#cbd5e1" strokeWidth="2.5" strokeLinecap="round" />
-            <path d="m83 53 5 5-5 5" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="m83 53 5 5-5 5" fill="none" stroke="#103fb9" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
             <text x="80" y="111" textAnchor="middle" fontSize="8" fontWeight="700" fill="#64748b">
               START → FINISH
             </text>

@@ -947,7 +947,7 @@ export default function FoodSearch({
   return (
     <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
       <div>
-        <p className="text-sm font-semibold tracking-widest text-emerald-600">
+        <p className="text-sm font-semibold tracking-widest text-blue-600">
           ADD FOOD
         </p>
 
@@ -968,7 +968,7 @@ export default function FoodSearch({
           }
           className={`rounded-xl px-4 py-3 font-semibold transition ${
             mode === "search"
-              ? "bg-emerald-500 text-white"
+              ? "bg-blue-500 text-white"
               : "text-slate-600 hover:text-slate-900"
           }`}
         >
@@ -981,7 +981,7 @@ export default function FoodSearch({
           }
           className={`rounded-xl px-4 py-3 font-semibold transition ${
             mode === "barcode"
-              ? "bg-emerald-500 text-white"
+              ? "bg-blue-500 text-white"
               : "text-slate-600 hover:text-slate-900"
           }`}
         >
@@ -994,7 +994,7 @@ export default function FoodSearch({
           }
           className={`rounded-xl px-4 py-3 font-semibold transition ${
             mode === "my-foods"
-              ? "bg-emerald-500 text-white"
+              ? "bg-blue-500 text-white"
               : "text-slate-600 hover:text-slate-900"
           }`}
         >
@@ -1015,19 +1015,19 @@ export default function FoodSearch({
                   if (event.key === "Enter") searchFood();
                 }}
                 placeholder="Search chicken, skyr, riž, Milbona..."
-                className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-400 outline-none focus:border-emerald-500"
+                className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-600 outline-none focus:border-blue-500"
               />
 
               <button
                 onClick={() => searchFood()}
                 disabled={loading || query.trim().length < 2}
-                className="rounded-xl bg-emerald-500 px-6 font-bold text-black transition hover:bg-emerald-400 disabled:opacity-50"
+                className="rounded-xl bg-blue-500 px-6 font-bold text-white transition hover:bg-blue-400 disabled:opacity-50"
               >
                 {loading ? "..." : "Search"}
               </button>
             </div>
 
-            <p className="mt-2 text-xs text-slate-400">
+            <p className="mt-2 text-xs text-slate-600">
               Results update automatically while you type.
             </p>
           </div>
@@ -1038,7 +1038,7 @@ export default function FoodSearch({
                 <div>
                   <div className="mb-2 flex items-center justify-between">
                     <p className="text-sm font-bold text-slate-700">★ Favorites</p>
-                    <span className="text-xs text-slate-400">{favorites.length}</span>
+                    <span className="text-xs text-slate-600">{favorites.length}</span>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {favorites.slice(0, 8).map((food) => (
@@ -1050,7 +1050,7 @@ export default function FoodSearch({
                           setSelectedFood(food);
                           setResults([food]);
                         }}
-                        className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700"
+                        className="rounded-full border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700"
                       >
                         {food.description}
                       </button>
@@ -1092,7 +1092,7 @@ export default function FoodSearch({
                     key={foodKey(food)}
                     className={`rounded-2xl border p-4 transition ${
                       selectedFood && foodKey(selectedFood) === foodKey(food)
-                        ? "border-emerald-500 bg-emerald-50"
+                        ? "border-blue-500 bg-blue-50"
                         : "border-slate-200 bg-slate-50 hover:border-slate-300"
                     }`}
                   >
@@ -1129,7 +1129,7 @@ export default function FoodSearch({
                           {nutrition.fat}g F
                         </p>
 
-                        <p className="mt-1 text-xs text-slate-400">per 100 g</p>
+                        <p className="mt-1 text-xs text-slate-600">per 100 g</p>
                       </button>
 
                       <div className="flex shrink-0 gap-2">
@@ -1151,7 +1151,7 @@ export default function FoodSearch({
                             setSelectedFood(food);
                             setGrams("100");
                           }}
-                          className="h-10 w-10 rounded-xl bg-emerald-500 text-xl font-bold text-black hover:bg-emerald-400"
+                          className="h-10 w-10 rounded-xl bg-blue-500 text-xl font-bold text-white hover:bg-blue-400"
                         >
                           +
                         </button>
@@ -1181,7 +1181,7 @@ export default function FoodSearch({
                     changeMode("my-foods");
                     setShowCreateFood(true);
                   }}
-                  className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-bold text-black"
+                  className="rounded-xl bg-blue-500 px-4 py-2 text-sm font-bold text-white"
                 >
                   Create food
                 </button>
@@ -1193,12 +1193,12 @@ export default function FoodSearch({
             const nutrition = calculatedNutrition(selectedFood);
 
             return (
-              <div className="mt-6 rounded-2xl border border-emerald-500/30 bg-slate-100 p-5">
+              <div className="mt-6 rounded-2xl border border-blue-500/30 bg-slate-100 p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-sm text-slate-500">Selected food</p>
                     <p className="mt-1 font-semibold">{selectedFood.description}</p>
-                    <p className="mt-1 text-xs text-slate-400">
+                    <p className="mt-1 text-xs text-slate-600">
                       {sourceLabel(selectedFood)}
                       {(selectedFood.brandName || selectedFood.brandOwner)
                         ? ` · ${selectedFood.brandName || selectedFood.brandOwner}`
@@ -1222,7 +1222,7 @@ export default function FoodSearch({
                         onClick={() => setGrams(amount)}
                         className={`rounded-xl border px-2 py-2 text-sm font-semibold ${
                           grams === amount
-                            ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                            ? "border-blue-500 bg-blue-50 text-blue-700"
                             : "border-slate-200 bg-white text-slate-600"
                         }`}
                       >
@@ -1239,7 +1239,7 @@ export default function FoodSearch({
                   <NutritionBox label="Fat" value={`${nutrition.fat} g`} />
                 </div>
 
-                <p className="mt-3 text-xs text-slate-400">
+                <p className="mt-3 text-xs text-slate-600">
                   Nutrition updates live for {Number(grams) || 100} g.
                 </p>
               </div>
@@ -1252,13 +1252,13 @@ export default function FoodSearch({
         <div className="mt-6">
           <button
             onClick={openScanner}
-            className="w-full rounded-xl border border-emerald-500 bg-emerald-50 p-4 font-bold text-emerald-600 transition hover:bg-emerald-500/20"
+            className="w-full rounded-xl border border-blue-500 bg-blue-50 p-4 font-bold text-blue-600 transition hover:bg-blue-500/20"
           >
             📷 Scan barcode with camera
           </button>
 
           {scannerOpen && (
-            <div className="mt-5 overflow-hidden rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
+            <div className="mt-5 overflow-hidden rounded-2xl border border-blue-200 bg-white p-4 shadow-sm">
               <div className="mb-3 flex items-center justify-between">
                 <div>
                   <p className="font-semibold">
@@ -1288,7 +1288,7 @@ export default function FoodSearch({
                 />
 
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-                  <div className="h-28 w-4/5 rounded-xl border-2 border-emerald-500" />
+                  <div className="h-28 w-4/5 rounded-xl border-2 border-blue-500" />
                 </div>
               </div>
 
@@ -1303,7 +1303,7 @@ export default function FoodSearch({
           <div className="my-5 flex items-center gap-3">
             <div className="h-px flex-1 bg-slate-200" />
 
-            <span className="text-xs text-slate-400">
+            <span className="text-xs text-slate-600">
               OR ENTER BARCODE
             </span>
 
@@ -1327,13 +1327,13 @@ export default function FoodSearch({
               }}
               inputMode="numeric"
               placeholder="Enter barcode number..."
-              className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-400 outline-none focus:border-emerald-500"
+              className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-600 outline-none focus:border-blue-500"
             />
 
             <button
               onClick={searchBarcode}
               disabled={loading}
-              className="rounded-xl bg-emerald-500 px-6 font-bold text-black transition hover:bg-emerald-400 disabled:opacity-50"
+              className="rounded-xl bg-blue-500 px-6 font-bold text-white transition hover:bg-blue-400 disabled:opacity-50"
             >
               {loading
                 ? "Searching..."
@@ -1342,7 +1342,7 @@ export default function FoodSearch({
           </div>
 
           {barcodeProduct && (
-            <div className="mt-6 rounded-2xl border border-emerald-500/30 bg-slate-100 p-5">
+            <div className="mt-6 rounded-2xl border border-blue-500/30 bg-slate-100 p-5">
               <div className="flex flex-col gap-5 sm:flex-row">
                 {barcodeProduct.image && (
                   <img
@@ -1382,7 +1382,7 @@ export default function FoodSearch({
                     </p>
                   )}
 
-                  <p className="mt-2 text-xs text-slate-400">
+                  <p className="mt-2 text-xs text-slate-600">
                     Barcode:{" "}
                     {
                       barcodeProduct.barcode
@@ -1443,7 +1443,7 @@ export default function FoodSearch({
                 />
               </div>
 
-              <p className="mt-3 text-xs text-slate-400">
+              <p className="mt-3 text-xs text-slate-600">
                 Nutrition shown per 100 g.
               </p>
             </div>
@@ -1458,13 +1458,13 @@ export default function FoodSearch({
               setShowCreateFood(!showCreateFood);
               setError("");
             }}
-            className="w-full rounded-xl bg-emerald-500 p-4 font-bold text-black transition hover:bg-emerald-400"
+            className="w-full rounded-xl bg-blue-500 p-4 font-bold text-white transition hover:bg-blue-400"
           >
             {showCreateFood ? "Cancel" : "+ Create food"}
           </button>
 
           {showCreateFood && (
-            <div className="mt-5 rounded-2xl border border-emerald-500/30 bg-slate-100 p-5">
+            <div className="mt-5 rounded-2xl border border-blue-500/30 bg-slate-100 p-5">
               <h3 className="text-xl font-bold">Create food</h3>
               <p className="mt-2 text-sm text-slate-500">
                 Enter nutrition values per 100 g. Barcode is optional.
@@ -1475,14 +1475,14 @@ export default function FoodSearch({
                   value={customName}
                   onChange={(event) => setCustomName(event.target.value)}
                   placeholder="Food name"
-                  className="rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-400 outline-none focus:border-emerald-500"
+                  className="rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-600 outline-none focus:border-blue-500"
                 />
 
                 <input
                   value={customBrand}
                   onChange={(event) => setCustomBrand(event.target.value)}
                   placeholder="Brand (optional)"
-                  className="rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-400 outline-none focus:border-emerald-500"
+                  className="rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-600 outline-none focus:border-blue-500"
                 />
 
                 <input
@@ -1490,7 +1490,7 @@ export default function FoodSearch({
                   onChange={(event) => setCustomBarcode(event.target.value)}
                   inputMode="numeric"
                   placeholder="Barcode (optional)"
-                  className="rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-400 outline-none focus:border-emerald-500"
+                  className="rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-600 outline-none focus:border-blue-500"
                 />
 
                 <input
@@ -1499,7 +1499,7 @@ export default function FoodSearch({
                   value={customCalories}
                   onChange={(event) => setCustomCalories(event.target.value)}
                   placeholder="Calories / 100 g"
-                  className="rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-400 outline-none focus:border-emerald-500"
+                  className="rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-600 outline-none focus:border-blue-500"
                 />
 
                 <input
@@ -1509,7 +1509,7 @@ export default function FoodSearch({
                   value={customProtein}
                   onChange={(event) => setCustomProtein(event.target.value)}
                   placeholder="Protein / 100 g"
-                  className="rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-400 outline-none focus:border-emerald-500"
+                  className="rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-600 outline-none focus:border-blue-500"
                 />
 
                 <input
@@ -1519,7 +1519,7 @@ export default function FoodSearch({
                   value={customCarbs}
                   onChange={(event) => setCustomCarbs(event.target.value)}
                   placeholder="Carbs / 100 g"
-                  className="rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-400 outline-none focus:border-emerald-500"
+                  className="rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-600 outline-none focus:border-blue-500"
                 />
 
                 <input
@@ -1529,13 +1529,13 @@ export default function FoodSearch({
                   value={customFat}
                   onChange={(event) => setCustomFat(event.target.value)}
                   placeholder="Fat / 100 g"
-                  className="rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-400 outline-none focus:border-emerald-500"
+                  className="rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-600 outline-none focus:border-blue-500"
                 />
               </div>
 
               <button
                 onClick={saveCustomFood}
-                className="mt-5 w-full rounded-xl bg-emerald-500 p-4 font-bold text-black transition hover:bg-emerald-400"
+                className="mt-5 w-full rounded-xl bg-blue-500 p-4 font-bold text-white transition hover:bg-blue-400"
               >
                 Save to My Foods
               </button>
@@ -1558,7 +1558,7 @@ export default function FoodSearch({
                     min="1"
                     value={grams}
                     onChange={(event) => setGrams(event.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-400 outline-none focus:border-emerald-500"
+                    className="w-full rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-600 outline-none focus:border-blue-500"
                   />
                 </div>
 
@@ -1569,7 +1569,7 @@ export default function FoodSearch({
                   <select
                     value={selectedMeal}
                     onChange={(event) => setSelectedMeal(event.target.value)}
-                    className="w-full rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-400 outline-none focus:border-emerald-500"
+                    className="w-full rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-600 outline-none focus:border-blue-500"
                   >
                     {meals.map((meal) => (
                       <option key={meal.id} value={meal.id}>
@@ -1594,7 +1594,7 @@ export default function FoodSearch({
                         </p>
                       )}
                       {food.barcode && (
-                        <p className="mt-1 text-xs text-slate-400">
+                        <p className="mt-1 text-xs text-slate-600">
                           Barcode: {food.barcode}
                         </p>
                       )}
@@ -1615,7 +1615,7 @@ export default function FoodSearch({
 
                   <button
                     onClick={() => addMyFoodToDiary(food)}
-                    className="mt-4 w-full rounded-xl border border-emerald-500 px-4 py-3 font-semibold text-emerald-600 transition hover:bg-emerald-50"
+                    className="mt-4 w-full rounded-xl border border-blue-500 px-4 py-3 font-semibold text-blue-600 transition hover:bg-blue-50"
                   >
                     Add to diary
                   </button>
@@ -1649,7 +1649,7 @@ export default function FoodSearch({
                   event.target.value
                 )
               }
-              className="w-full rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-400 outline-none focus:border-emerald-500"
+              className="w-full rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-600 outline-none focus:border-blue-500"
             />
           </div>
 
@@ -1665,7 +1665,7 @@ export default function FoodSearch({
                   event.target.value
                 )
               }
-              className="w-full rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-400 outline-none focus:border-emerald-500"
+              className="w-full rounded-xl border border-slate-300 bg-white p-4 text-slate-900 placeholder:text-slate-600 outline-none focus:border-blue-500"
             >
               {meals.map((meal) => (
                 <option
@@ -1683,7 +1683,7 @@ export default function FoodSearch({
       {selectedFood && (
         <button
           onClick={addUSDAFood}
-          className="mt-4 w-full rounded-xl bg-emerald-500 p-4 font-bold text-black transition hover:bg-emerald-400"
+          className="mt-4 w-full rounded-xl bg-blue-500 p-4 font-bold text-white transition hover:bg-blue-400"
         >
           Add food
         </button>
@@ -1692,7 +1692,7 @@ export default function FoodSearch({
       {barcodeProduct && (
         <button
           onClick={addBarcodeFood}
-          className="mt-4 w-full rounded-xl bg-emerald-500 p-4 font-bold text-black transition hover:bg-emerald-400"
+          className="mt-4 w-full rounded-xl bg-blue-500 p-4 font-bold text-white transition hover:bg-blue-400"
         >
           Add product
         </button>

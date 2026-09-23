@@ -1,5 +1,8 @@
 "use client";
 
+import {useRef} from "react";
+import latArt from "./assets/cyg-lat-pulldown.png";
+import flyArt from "./assets/cyg-pec-deck.png";
 import flatArt from "./assets/cyg-flat-bench.png";
 import smithArt from "./assets/cyg-smith-incline.png";
 import shoulderArt from "./assets/cyg-seated-db-press.png";
@@ -11,6 +14,8 @@ import type { MuscleGroup } from "./types";
 const url = (image: unknown) => typeof image === "string" ? image : (image as {src:string}).src;
 const normalize = (name:string) => name.toLowerCase().replace(/[-–]/g," ").replace(/\s+/g," ").trim();
 const artwork: Record<string, unknown> = {
+ "lat pulldown":latArt,
+ "machine chest fly":flyArt,"pec deck":flyArt,
  "lever lying t bar row":rowArt,"chest supported t bar row":rowArt,
  "seated dumbbell shoulder press":shoulderArt,
  "barbell bench press":flatArt,"flat barbell bench press":flatArt,"bench press":flatArt,
@@ -18,9 +23,12 @@ const artwork: Record<string, unknown> = {
 };
 export function hasExerciseArt(name:string) { return Boolean(artwork[normalize(name)]); }
 export function ExerciseArt({name,compact=false}:{name:string;compact?:boolean}) {
+ const dialog=useRef<HTMLDialogElement>(null);
  const asset=artwork[normalize(name)];
- if(asset) return <div className={`mv-exercise-art cyg-anatomical-art ${compact?'compact':''}`}><img src={url(asset)} alt={`${name}: anatomical exercise illustration with highlighted muscles`} loading="lazy"/></div>;
- return <div className={`mv-exercise-art cyg-art-pending ${compact?'compact':''}`}><span>{compact?'CYG':name}</span><small>Illustration in preparation</small></div>;
+ if(!asset)return <div className={`mv-exercise-art cyg-art-pending ${compact?'compact':''}`}><span>{compact?'CYG':name}</span><small>Illustration in preparation</small></div>;
+ const img=<img src={url(asset)} alt={`${name}: anatomical exercise illustration with highlighted muscles`} loading="lazy"/>;
+ if(compact)return <div className="mv-exercise-art cyg-anatomical-art compact">{img}</div>;
+ return <div className="mv-exercise-art cyg-anatomical-art"><button type="button" className="cyg-art-open" aria-label={`Enlarge ${name} illustration`} onClick={()=>dialog.current?.showModal()}>{img}<span>Enlarge ↗</span></button><dialog className="cyg-art-dialog" ref={dialog} onClick={event=>{if(event.target===event.currentTarget)dialog.current?.close()}}><header><strong>{name}</strong><button type="button" autoFocus onClick={()=>dialog.current?.close()}>Close ×</button></header><img src={url(asset)} alt={`${name} enlarged illustration`}/></dialog></div>;
 }
 const groups: MuscleGroup[] = ["Chest", "Back", "Shoulders", "Biceps", "Triceps", "Quads", "Hamstrings", "Glutes", "Calves", "Abs"];
 

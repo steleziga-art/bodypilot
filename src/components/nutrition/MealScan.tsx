@@ -214,10 +214,10 @@ export default function MealScan({
   }
 
   return (
-    <section className="rounded-3xl border border-emerald-100 bg-white p-5 shadow-sm sm:p-6">
+    <section className="rounded-3xl border border-blue-100 bg-white p-5 shadow-sm sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-600">AI Meal Scan</p>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">AI Meal Scan</p>
           <h3 className="mt-1 text-2xl font-black text-slate-950">Camera → review → diary</h3>
           <p className="mt-2 max-w-xl text-sm leading-6 text-slate-500">
             Take a photo or choose one from your library. CYG estimates visible foods and portions; you stay in control before anything is logged.
@@ -226,7 +226,7 @@ export default function MealScan({
         <select
           value={mealId}
           onChange={(event) => setMealId(event.target.value)}
-          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-emerald-500"
+          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold outline-none focus:border-blue-500"
         >
           {meals.map((meal) => (
             <option key={meal.id} value={meal.id}>{meal.name}</option>
@@ -235,14 +235,14 @@ export default function MealScan({
       </div>
 
       <div className="mt-5 grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
-        <div className="rounded-2xl border border-dashed border-emerald-200 bg-emerald-50/40 p-4">
+        <div className="rounded-2xl border border-dashed border-blue-200 bg-blue-50/40 p-4">
           {preview ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={preview} alt="Meal preview" className="max-h-80 w-full rounded-xl object-cover" />
           ) : (
             <div className="grid min-h-56 place-items-center rounded-xl bg-white/70 p-6 text-center">
               <div>
-                <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-emerald-100 text-2xl" aria-hidden="true">⌁</div>
+                <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-blue-100 text-2xl" aria-hidden="true">⌁</div>
                 <p className="mt-3 font-black text-slate-900">Photograph the whole plate</p>
                 <p className="mt-1 text-sm text-slate-500">Good light and a top-down angle improve portion estimates.</p>
               </div>
@@ -256,7 +256,7 @@ export default function MealScan({
               type="button"
               onClick={() => cameraRef.current?.click()}
               disabled={preparing || loading}
-              className="rounded-xl bg-emerald-500 px-3 py-3 text-sm font-black text-white disabled:opacity-50"
+              className="rounded-xl bg-blue-500 px-3 py-3 text-sm font-black text-white disabled:opacity-50"
             >
               📷 Take photo
             </button>
@@ -264,7 +264,7 @@ export default function MealScan({
               type="button"
               onClick={() => galleryRef.current?.click()}
               disabled={preparing || loading}
-              className="rounded-xl border border-emerald-200 bg-white px-3 py-3 text-sm font-black text-emerald-700 disabled:opacity-50"
+              className="rounded-xl border border-blue-200 bg-white px-3 py-3 text-sm font-black text-blue-700 disabled:opacity-50"
             >
               Choose photo
             </button>
@@ -273,7 +273,7 @@ export default function MealScan({
             type="button"
             onClick={scan}
             disabled={!imageData || loading || preparing}
-            className="mt-2 w-full rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+            className="mt-2 w-full rounded-xl bg-blue-500 px-4 py-3 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
           >
             {preparing ? "Preparing photo…" : loading ? "Analyzing meal…" : "Analyze meal"}
           </button>
@@ -289,7 +289,7 @@ export default function MealScan({
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-sm font-black text-slate-900">Detected foods</p>
-                <button type="button" onClick={scan} disabled={loading} className="text-xs font-black text-emerald-600 disabled:opacity-50">Rescan photo</button>
+                <button type="button" onClick={scan} disabled={loading} className="text-xs font-black text-blue-600 disabled:opacity-50">Rescan photo</button>
               </div>
               {items.map((item, index) => {
                 const x = itemTotals(item);
@@ -306,7 +306,7 @@ export default function MealScan({
                         />
                         <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
                           <span>{formatEnergy(x.calories, displaySettings.energyUnit)} · {round1(x.protein)} P · {round1(x.carbs)} C · {round1(x.fat)} F</span>
-                          {confidence > 0 && <span className={`rounded-full px-2 py-0.5 font-bold ${confidence >= 75 ? "bg-emerald-50 text-emerald-700" : confidence >= 50 ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>{confidence}% confidence</span>}
+                          {confidence > 0 && <span className={`rounded-full px-2 py-0.5 font-bold ${confidence >= 75 ? "bg-blue-50 text-blue-700" : confidence >= 50 ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600"}`}>{confidence}% confidence</span>}
                         </div>
                       </div>
                       <button
@@ -326,7 +326,7 @@ export default function MealScan({
                         step={5}
                         value={item.grams}
                         onChange={(event) => updateItem(index, { grams: Math.max(0, Number(event.target.value) || 0) })}
-                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-base font-black outline-none focus:border-emerald-500"
+                        className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-base font-black outline-none focus:border-blue-500"
                       />
                     </label>
                   </div>
@@ -339,7 +339,7 @@ export default function MealScan({
                 <ScanStat label="Carbs" value={`${round1(totals.carbs)} g`} />
                 <ScanStat label="Fat" value={`${round1(totals.fat)} g`} />
               </div>
-              <button type="button" onClick={addToDiary} className="w-full rounded-2xl bg-emerald-500 py-4 font-black text-white">
+              <button type="button" onClick={addToDiary} className="w-full rounded-2xl bg-blue-500 py-4 font-black text-white">
                 Add reviewed meal to diary
               </button>
             </div>
@@ -362,7 +362,7 @@ export default function MealScan({
 function ScanStat({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl bg-slate-50 p-3">
-      <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="text-[10px] font-black uppercase tracking-wider text-slate-600">{label}</p>
       <p className="mt-1 font-black text-slate-900">{value}</p>
     </div>
   );

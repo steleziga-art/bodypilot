@@ -143,10 +143,10 @@ export default function NutritionInsights({
 
   return (
     <section className="mt-8 overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-emerald-100 bg-emerald-50 p-6 text-slate-950">
+      <div className="border-b border-blue-100 bg-blue-50 p-6 text-slate-950">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-400">Nutrition 3.0</p>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-400">Nutrition 3.0</p>
             <h2 className="mt-2 text-3xl font-black">Fuel the plan.</h2>
             <p className="mt-2 max-w-xl text-sm text-slate-500">
               One place for today&apos;s targets, hydration and your longer-term nutrition consistency.
@@ -169,7 +169,7 @@ export default function NutritionInsights({
       {view === "today" ? (
         <div className="grid gap-5 p-6 lg:grid-cols-[1.15fr_.85fr]">
           <div>
-            <p className="text-xs font-black uppercase tracking-widest text-slate-400">Macro progress</p>
+            <p className="text-xs font-black uppercase tracking-widest text-slate-600">Macro progress</p>
             <div className="mt-4 space-y-4">
               {macros.map((macro) => {
                 const pct = Math.min(100, Math.round((macro.value / Math.max(1, macro.goal)) * 100));
@@ -180,7 +180,7 @@ export default function NutritionInsights({
                       <span className="text-slate-500">{Math.round(macro.value)} / {macro.goal} {macro.unit}</span>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                      <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+                      <div className="h-full rounded-full bg-blue-500" style={{ width: `${pct}%` }} />
                     </div>
                   </div>
                 );
@@ -189,8 +189,8 @@ export default function NutritionInsights({
 
             <div className="mt-8 border-t border-slate-100 pt-6">
               <div className="flex flex-wrap items-end justify-between gap-3">
-                <div><p className="text-xs font-black uppercase tracking-widest text-slate-400">Micronutrients</p><h3 className="mt-1 text-xl font-black text-slate-950">Vitamins, minerals & fiber</h3></div>
-                <span className="text-xs font-bold text-slate-400">{microCoverage}/{micronutrients.length} with data</span>
+                <div><p className="text-xs font-black uppercase tracking-widest text-slate-600">Micronutrients</p><h3 className="mt-1 text-xl font-black text-slate-950">Vitamins, minerals & fiber</h3></div>
+                <span className="text-xs font-bold text-slate-600">{microCoverage}/{micronutrients.length} with data</span>
               </div>
               {microCoverage ? (
                 <>
@@ -199,11 +199,11 @@ export default function NutritionInsights({
                     {micronutrients.map((item) => (
                       <div key={item.key} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
                         <div className="flex items-center justify-between gap-3 text-xs"><span className="font-black text-slate-800">{item.label}</span><span className="text-slate-500">{item.hasData ? `${item.value < 10 ? item.value.toFixed(1) : Math.round(item.value)} / ${item.goal} ${item.unit}` : "No data"}</span></div>
-                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200"><div className={`h-full rounded-full ${item.upper && item.pct > 100 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${Math.min(100, item.pct)}%` }} /></div>
+                        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200"><div className={`h-full rounded-full ${item.upper && item.pct > 100 ? "bg-amber-500" : "bg-blue-500"}`} style={{ width: `${Math.min(100, item.pct)}%` }} /></div>
                       </div>
                     ))}
                   </div>
-                  <p className="mt-3 text-[11px] leading-5 text-slate-400">Reference targets are general daily values, not personalized medical targets. Missing food data is shown as “No data”, not zero.</p>
+                  <p className="mt-3 text-[11px] leading-5 text-slate-600">Reference targets are general daily values, not personalized medical targets. Missing food data is shown as “No data”, not zero.</p>
                 </>
               ) : <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-500">No micronutrient data is available for today&apos;s logged foods yet. USDA foods added from search will include available micronutrients; custom and many barcode foods may not.</div>}
             </div>
@@ -212,7 +212,7 @@ export default function NutritionInsights({
           <div className="rounded-3xl bg-slate-50 p-5">
             <div className="flex items-center justify-between gap-3">
               <div><p className="text-xs font-black uppercase tracking-widest text-sky-600">Hydration</p><p className="mt-1 text-2xl font-black">{waterMl} ml</p></div>
-              <button onClick={() => setWaterMl(0)} className="text-xs font-black text-slate-400 hover:text-slate-700">Reset</button>
+              <button onClick={() => setWaterMl(0)} className="text-xs font-black text-slate-600 hover:text-slate-700">Reset</button>
             </div>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-200">
               <div className="h-full rounded-full bg-sky-500" style={{ width: `${hydrationScore}%` }} />
@@ -227,7 +227,7 @@ export default function NutritionInsights({
       ) : (
         <div className="p-6">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div><p className="text-xs font-black uppercase tracking-widest text-emerald-600">Analytics</p><h3 className="mt-1 text-2xl font-black">Consistency over time</h3></div>
+            <div><p className="text-xs font-black uppercase tracking-widest text-blue-600">Analytics</p><h3 className="mt-1 text-2xl font-black">Consistency over time</h3></div>
             <div className="flex rounded-xl bg-slate-100 p-1">
               {([7, 30, 90] as const).map((days) => (
                 <button key={days} onClick={() => setRange(days)} className={`rounded-lg px-3 py-2 text-xs font-black ${range === days ? "bg-white shadow-sm" : "text-slate-500"}`}>{days}D</button>
@@ -245,14 +245,14 @@ export default function NutritionInsights({
 
           <div className="mt-5 rounded-3xl bg-slate-50 p-5">
             <div className="flex items-center justify-between gap-3">
-              <div><p className="text-xs font-black uppercase tracking-widest text-slate-400">Logged days</p><p className="mt-1 text-xl font-black">{stats.days.length} of last {range} days</p></div>
+              <div><p className="text-xs font-black uppercase tracking-widest text-slate-600">Logged days</p><p className="mt-1 text-xl font-black">{stats.days.length} of last {range} days</p></div>
               <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-500">Local history</span>
             </div>
             <div className="mt-5 flex h-28 items-end gap-1">
               {stats.days.length ? stats.days.map((day) => {
                 const pct = Math.max(8, Math.min(100, (day.calories / Math.max(1, goals.calories)) * 75));
-                return <div key={day.date} title={`${day.date}: ${day.calories} kcal`} className="min-w-1 flex-1 rounded-t bg-emerald-500/80" style={{ height: `${pct}%` }} />;
-              }) : <div className="flex h-full w-full items-center justify-center text-sm text-slate-400">Log food for a few days to build your trend.</div>}
+                return <div key={day.date} title={`${day.date}: ${day.calories} kcal`} className="min-w-1 flex-1 rounded-t bg-blue-500/80" style={{ height: `${pct}%` }} />;
+              }) : <div className="flex h-full w-full items-center justify-center text-sm text-slate-600">Log food for a few days to build your trend.</div>}
             </div>
           </div>
         </div>
@@ -262,9 +262,9 @@ export default function NutritionInsights({
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-2xl bg-white/10 p-4"><p className="text-xs font-bold text-slate-400">{label}</p><p className="mt-1 text-xl font-black">{value}</p></div>;
+  return <div className="rounded-2xl bg-white/10 p-4"><p className="text-xs font-bold text-slate-600">{label}</p><p className="mt-1 text-xl font-black">{value}</p></div>;
 }
 
 function AnalyticsMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-black uppercase tracking-wider text-slate-400">{label}</p><p className="mt-2 text-2xl font-black">{value}</p><p className="mt-1 text-xs text-slate-500">{detail}</p></div>;
+  return <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-black uppercase tracking-wider text-slate-600">{label}</p><p className="mt-2 text-2xl font-black">{value}</p><p className="mt-1 text-xs text-slate-500">{detail}</p></div>;
 }

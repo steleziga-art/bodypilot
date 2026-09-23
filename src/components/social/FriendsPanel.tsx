@@ -326,7 +326,7 @@ export default function FriendsPanel() {
     const current = permissions[friendId] || {
       owner_id: me,
       friend_id: friendId,
-      share_training: true,
+      share_training: false,
       share_progress: false,
       share_nutrition: false,
       share_measurements: false,
@@ -358,7 +358,7 @@ export default function FriendsPanel() {
     const permission = permissions[selectedFriend] || {
       owner_id: me,
       friend_id: selectedFriend,
-      share_training: true,
+      share_training: false,
       share_progress: false,
       share_nutrition: false,
       share_measurements: false,

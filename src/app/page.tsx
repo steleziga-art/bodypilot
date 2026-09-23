@@ -3323,12 +3323,20 @@ function GetFitPlan({
           <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
             <p className="font-semibold">How it is calculated</p>
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              BMR uses the Mifflin-St Jeor equation. Maintenance is
-              BMR multiplied by the selected activity factor. Goal
-              calories are adjusted from maintenance. Protein and fat
-              receive minimum targets first, and remaining calories
-              are assigned to carbohydrates.
+              Your resting energy (BMR) comes from the Mifflin-St Jeor equation.
+              CYG multiplies it by your selected activity level to estimate maintenance.
+              The activity factor covers everyday movement, planned exercise and the
+              thermic effect of food together. These parts are not measured separately;
+              the split below illustrates how the maintenance estimate adds up.
             </p>
+            <div className="mt-3 space-y-1 text-sm text-slate-600">
+              <p>Resting energy: {formatEnergy(result.bmr, displaySettings.energyUnit)}</p>
+              <p>Everyday activity and sport (combined estimate): {formatEnergy(Math.max(0, result.maintenance - result.bmr - Math.round(result.maintenance * 0.1)), displaySettings.energyUnit)}</p>
+              <p>Thermic effect of food (illustrative 10%): {formatEnergy(Math.round(result.maintenance * 0.1), displaySettings.energyUnit)}</p>
+              <p className="font-bold">Estimated maintenance total: {formatEnergy(result.maintenance, displaySettings.energyUnit)}</p>
+              <p>Goal adjustment: {formatEnergy(result.calories - result.maintenance, displaySettings.energyUnit)} → daily target {formatEnergy(result.calories, displaySettings.energyUnit)}</p>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">Logged workouts are already represented by your chosen activity level; they are not added again to this plan estimate. Protein and fat are set first, with the remaining calories assigned to carbohydrates.</p>
           </div>
 
           <button

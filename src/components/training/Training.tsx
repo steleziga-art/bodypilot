@@ -6,6 +6,8 @@ import { defaultExercises } from "./exercises";
 import LyftaImport from "./LyftaImport";
 import { ExerciseArt, AnatomyMap } from "./TrainingVisuals";
 import { HistoryView, ExerciseView, ProgressView } from "./TrainingViews";
+import CardioFields from "./CardioFields";
+import { cardioNames, isCardioExercise, cardioCalories, getWorkoutWeight } from "./workoutCardio";
 import "./training-visual.css";
 import { loadCloudData, saveCloudData, deleteCloudData } from "@/lib/supabase/storage";
 import type {
@@ -173,7 +175,6 @@ export default function Training() {
   const [customExercises, setCustomExercises] =
     useState<Exercise[]>([]);
 
-  const [reviewWorkout,setReviewWorkout]=useState(false);
   const [loaded, setLoaded] = useState(false);
   const [cloudReady, setCloudReady] = useState(false);
 
@@ -357,10 +358,11 @@ export default function Training() {
         id: makeId(),
         exerciseId: exercise.exerciseId,
         exerciseName: exercise.exerciseName,
-        sets: Array.from(
+        sets: isCardioExercise(exercise.exerciseName) ? [] : Array.from(
           { length: exercise.defaultSets },
           () => createEmptySet()
         ),
+        ...(isCardioExercise(exercise.exerciseName) ? { cardio: { durationMinutes: 0, distanceKm: 0, intensity: "moderate" as const } } : {}),
       }));
 
     setActiveWorkout({
@@ -373,10 +375,9 @@ export default function Training() {
     setActiveTab("workout");
   }
 
-  function finishWorkout() { setReviewWorkout(true); }
+  function finishWorkout() { commitWorkout(); }
 
   function commitWorkout() {
-    setReviewWorkout(false);
     if (!activeWorkout) {
       return;
     }
@@ -414,11 +415,11 @@ export default function Training() {
             1000
         )
       ),
-      estimatedCalories: estimateWorkoutCalories(activeWorkout.startedAt, finishedAt),
+      estimatedCalories: estimateWorkoutCalories(activeWorkout.startedAt, finishedAt, activeWorkout.exercises),
       exercises: activeWorkout.exercises.map(
         (exercise) => ({
           ...exercise,
-          sets: exercise.sets.filter(
+          sets: exercise.cardio ? [] : exercise.sets.filter(
             (set) =>
               set.completed ||
               set.weight > 0 ||
@@ -529,7 +530,6 @@ export default function Training() {
 
   return (
     <div className="mv-training">
-      {reviewWorkout&&activeWorkout&&<WorkoutReview workout={activeWorkout} units={displayUnits} onBack={()=>setReviewWorkout(false)} onSave={commitWorkout}/>}
       <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-600">Training</p>
@@ -595,7 +595,7 @@ export default function Training() {
           </details><HistoryView
             history={history}
             deleteHistoryEntry={deleteHistoryEntry}
-            updateHistoryEntry={entry=>setHistory(current=>current.map(w=>w.id===entry.id?entry:w))}
+            updateHistoryEntry={entry=>setHistory(current=>current.map(w=>w.id===entry.id?{...entry,estimatedCalories:estimateWorkoutCalories(entry.startedAt,new Date(entry.finishedAt),entry.exercises)}:w))}
             restoreHistoryEntry={entry=>setHistory(current=>[entry,...current.filter(w=>w.id!==entry.id)].sort((a,b)=>Date.parse(b.finishedAt)-Date.parse(a.finishedAt)))}
             displayUnits={displayUnits}
             onOpenExercise={(exerciseId) => {
@@ -612,7 +612,7 @@ export default function Training() {
           exercises={allExercises}
           history={history}
           displayUnits={displayUnits}
-          onAdd={(exercise) => { setActiveWorkout(current => ({id:current?.id || makeId(), name:current?.name || "Workout", startedAt:current?.startedAt || new Date().toISOString(), exercises:[...(current?.exercises || []), {id:makeId(), exerciseId:exercise.id, exerciseName:exercise.name, sets:[createEmptySet()]}]})); setActiveTab("workout"); }}
+          onAdd={(exercise) => { const cardio = isCardioExercise(exercise.name); setActiveWorkout(current => ({id:current?.id || makeId(), name:current?.name || "Workout", startedAt:current?.startedAt || new Date().toISOString(), exercises:[...(current?.exercises || []), {id:makeId(), exerciseId:exercise.id, exerciseName:exercise.name, sets:cardio?[]:[createEmptySet()],...(cardio?{cardio:{durationMinutes:0,distanceKm:0,intensity:"moderate" as const}}:{})}]})); setActiveTab("workout"); }}
           addCustomExercise={addCustomExercise}
           deleteCustomExercise={
             deleteCustomExercise
@@ -1062,11 +1062,13 @@ function WorkoutTab({
   }
 
   function addExercise(exercise: Exercise) {
+    const cardio = isCardioExercise(exercise.name);
     const newExercise: WorkoutExercise = {
       id: makeId(),
       exerciseId: exercise.id,
       exerciseName: exercise.name,
-      sets: [createEmptySet()],
+      sets: cardio ? [] : [createEmptySet()],
+      ...(cardio ? { cardio: { durationMinutes: 0, distanceKm: 0, intensity: "moderate" as const } } : {}),
     };
 
     setActiveWorkout((current) =>
@@ -1539,7 +1541,8 @@ function WorkoutTab({
                   </div></details>
                 </div>
 
-                {!collapsedExercises[exercise.id] && <>
+                {!collapsedExercises[exercise.id] && (exercise.cardio || isCardioExercise(exercise.exerciseName) ?
+                  <CardioFields exercise={exercise} units={displayUnits} onChange={next => setActiveWorkout(current => current ? { ...current, exercises: current.exercises.map(item => item.id === next.id ? next : item) } : current)} /> : <>
                 {openDetailsByExercise[
                   exercise.id
                 ] && (
@@ -1816,7 +1819,7 @@ function WorkoutTab({
                     </button>
                   </div>
                 </div>
-                </>}
+                </>)}
               </section>
             );
           }
@@ -1919,6 +1922,7 @@ function WorkoutTab({
       >
         + Add exercise
       </button>
+      <div className="cyg-add-cardio"><label htmlFor="cyg-cardio-choice">+ Add cardio</label><select id="cyg-cardio-choice" value="" onChange={event => { const name = event.target.value; if (name) addExercise(exercises.find(item => item.name === name) || { id: `cardio-${name.toLowerCase().replaceAll(" ", "-")}`, name, muscleGroup: "Other" }); }}><option value="">Choose activity…</option>{cardioNames.map(name => <option key={name} value={name}>{name}</option>)}</select></div>
 
       {showExercisePicker && (
         <section className="mt-5 rounded-3xl border border-blue-400/30 bg-white p-6">
@@ -2073,6 +2077,8 @@ function WorkoutTab({
               <SummaryMetric label="PRs" value={activeWorkout.exercises.reduce((total,e)=>total+e.sets.filter(set=>set.completed && isPersonalRecord(history,e.exerciseId,set)).length,0)} />
               <SummaryMetric label="Exercises" value={activeWorkout.exercises.length} />
             </div>
+            <p className="mt-4 font-bold text-blue-700">≈ {estimateWorkoutCalories(activeWorkout.startedAt, new Date(), activeWorkout.exercises)} kcal burned · estimate</p>
+            <div className="mt-4 flex gap-3"><button onClick={() => setShowFinishReview(false)} className="flex-1 rounded-xl border border-slate-200 p-3 font-bold">Edit workout</button><button onClick={() => { setShowFinishReview(false); discardWorkout(); }} className="flex-1 rounded-xl border border-rose-200 p-3 font-bold text-rose-600">Discard</button></div>
             <button onClick={()=>{ localStorage.setItem(`bodypilot-workout-feeling-${activeWorkout.id}`,String(sessionFeeling)); setShowFinishReview(false); finishWorkout(); }} className="mt-6 w-full rounded-2xl bg-blue-500 py-4 text-lg font-black text-white">Save Workout</button>
           </div>
         </div>
@@ -2819,20 +2825,13 @@ function makeId() {
     .slice(2, 9)}`;
 }
 
-function estimateWorkoutCalories(startedAt: string, finishedAt: Date) {
+function estimateWorkoutCalories(startedAt: string, finishedAt: Date, exercises: WorkoutExercise[] = []) {
   const minutes = Math.max(0, Math.min(180, (finishedAt.getTime() - Date.parse(startedAt)) / 60000));
-  let bodyWeight = 80;
-  try {
-    const saved = JSON.parse(localStorage.getItem("bodypilot-profile") || "{}");
-    if (Number.isFinite(saved.weight) && saved.weight > 0) bodyWeight = saved.weight;
-  } catch {}
-  return Math.round((4.5 * 3.5 * bodyWeight / 200) * minutes);
+  const bodyWeight = getWorkoutWeight();
+  const cardio = exercises.filter(exercise => exercise.cardio);
+  const cardioMinutes = cardio.reduce((sum, exercise) => sum + Math.max(0, exercise.cardio?.durationMinutes || 0), 0);
+  const strengthMinutes = exercises.some(exercise => !exercise.cardio) ? Math.max(0, minutes - cardioMinutes) : 0;
+  return Math.round(4.5 * 3.5 * bodyWeight / 200 * strengthMinutes + cardio.reduce((sum, exercise) => sum + cardioCalories(exercise, bodyWeight), 0));
 }
 
-function WorkoutReview({workout,units,onBack,onSave}:{workout:ActiveWorkout;units:"metric"|"imperial";onBack:()=>void;onSave:()=>void}){
- const dialog=useRef<HTMLDialogElement>(null);
- useEffect(()=>{const el=dialog.current;el?.showModal();return()=>el?.close()},[]);
- const completed=workout.exercises.flatMap(e=>e.sets).filter(s=>s.completed&&s.reps>0);
- const volume=completed.reduce((n,s)=>n+s.weight*s.reps,0);
- return <dialog ref={dialog} onCancel={onBack} className="m-auto w-[min(92vw,480px)] rounded-3xl border-0 p-6 shadow-xl backdrop:bg-slate-950/50"><h2 className="text-2xl font-black">Finish {workout.name || 'workout'}?</h2><p className="mt-3 text-sm text-slate-500">Review your session before saving.</p><div className="my-5 grid grid-cols-3 gap-3"><div><strong>{completed.length}</strong><p className="text-xs">Completed sets</p></div><div><strong>{formatStoredVolume(volume,units)}</strong><p className="text-xs">Completed volume</p></div><div><strong>{Math.max(0,Math.round((Date.now()-Date.parse(workout.startedAt))/60000))} min</strong><p className="text-xs">Duration</p></div></div><p className="text-xs text-slate-500">Unfinished sets stay marked unfinished and are excluded from progress totals. You can edit completed sets later in History.</p><div className="mt-6 flex gap-3"><button autoFocus onClick={onBack} className="flex-1 rounded-xl border p-3 font-bold">Back to workout</button><button onClick={onSave} className="flex-1 rounded-xl bg-blue-700 p-3 font-bold text-white">Save workout</button></div></dialog>;
-}
+

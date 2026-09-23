@@ -187,7 +187,11 @@ export default function Training() {
         localStorage.getItem(CUSTOM_EXERCISES_KEY);
 
       if (active) {
-        setActiveWorkout(JSON.parse(active));
+        const parsedActive = JSON.parse(active) as ActiveWorkout;
+        const finished = workoutHistory ? JSON.parse(workoutHistory) as WorkoutHistoryEntry[] : [];
+        if (!Array.isArray(finished) || !finished.some(entry => entry.id === parsedActive.id)) {
+          setActiveWorkout(parsedActive);
+        }
       }
 
       if (saved) {
@@ -235,7 +239,14 @@ export default function Training() {
         loadCloudData<Exercise[]>("custom_exercises"),
       ]);
       if (cancelled) return;
-      if (cloudActive) setActiveWorkout(local=>local || cloudActive);
+      let localHistory: WorkoutHistoryEntry[] = [];
+      try {
+        const parsed = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+        if (Array.isArray(parsed)) localHistory = parsed;
+      } catch {}
+      if (cloudActive && !cloudHistory?.some((workout) => workout.id === cloudActive.id) && !localHistory.some((workout) => workout.id === cloudActive.id)) {
+        setActiveWorkout(local => local || cloudActive);
+      }
       if (Array.isArray(cloudSaved)) setSavedWorkouts(cloudSaved);
       if (Array.isArray(cloudHistory)) setHistory(local=>Array.from(new Map([...cloudHistory,...local].map(w=>[w.id,w])).values()).sort((a,b)=>Date.parse(b.finishedAt)-Date.parse(a.finishedAt)));
       if (Array.isArray(cloudCustom)) setCustomExercises(cloudCustom);
@@ -369,6 +380,10 @@ export default function Training() {
     if (!activeWorkout) {
       return;
     }
+    if (Date.now() - Date.parse(activeWorkout.startedAt) > 12 * 3600000) {
+      window.alert("This session has an old timer. Resume it with a new timer before saving your workout.");
+      return;
+    }
 
     if (activeWorkout.exercises.length === 0) {
       const confirmed = window.confirm(
@@ -399,6 +414,7 @@ export default function Training() {
             1000
         )
       ),
+      estimatedCalories: estimateWorkoutCalories(activeWorkout.startedAt, finishedAt),
       exercises: activeWorkout.exercises.map(
         (exercise) => ({
           ...exercise,
@@ -582,6 +598,11 @@ export default function Training() {
             updateHistoryEntry={entry=>setHistory(current=>current.map(w=>w.id===entry.id?entry:w))}
             restoreHistoryEntry={entry=>setHistory(current=>[entry,...current.filter(w=>w.id!==entry.id)].sort((a,b)=>Date.parse(b.finishedAt)-Date.parse(a.finishedAt)))}
             displayUnits={displayUnits}
+            onOpenExercise={(exerciseId) => {
+              sessionStorage.setItem("cyg-open-exercise", exerciseId);
+              setActiveTab("exercises");
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }}
           />
         </div>
       )}
@@ -781,6 +802,10 @@ function WorkoutTab({
     const updateTimer = () => {
       if (paused) return;
       const startedAt = new Date(activeWorkout.startedAt).getTime();
+      if (!Number.isFinite(startedAt) || Date.now() - startedAt > 12 * 3600000) {
+        setElapsedSeconds(0);
+        return;
+      }
       setElapsedSeconds(
         Math.max(0, Math.floor((Date.now() - startedAt - pausedTotal) / 1000))
       );
@@ -1353,6 +1378,15 @@ function WorkoutTab({
 
   return (
     <div className="mv-workout">
+      {Date.now() - Date.parse(activeWorkout.startedAt) > 12 * 3600000 && (
+        <div role="status" className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          This workout was left open. Its timer is stopped; your logged sets are still here.
+          <button type="button" className="ml-3 font-bold underline" onClick={() => {
+            setPaused(false); setPausedTotal(0); setPauseStartedAt(null); setRestSecondsLeft(0);
+            setActiveWorkout(current => current ? { ...current, startedAt: new Date().toISOString() } : current);
+          }}>Resume with a new timer</button>
+        </div>
+      )}
       <section className="mv-active-head rounded-3xl border border-slate-200 bg-white p-6">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div className="flex-1">
@@ -2783,6 +2817,16 @@ function makeId() {
   return `${Date.now()}-${Math.random()
     .toString(36)
     .slice(2, 9)}`;
+}
+
+function estimateWorkoutCalories(startedAt: string, finishedAt: Date) {
+  const minutes = Math.max(0, Math.min(180, (finishedAt.getTime() - Date.parse(startedAt)) / 60000));
+  let bodyWeight = 80;
+  try {
+    const saved = JSON.parse(localStorage.getItem("bodypilot-profile") || "{}");
+    if (Number.isFinite(saved.weight) && saved.weight > 0) bodyWeight = saved.weight;
+  } catch {}
+  return Math.round((4.5 * 3.5 * bodyWeight / 200) * minutes);
 }
 
 function WorkoutReview({workout,units,onBack,onSave}:{workout:ActiveWorkout;units:"metric"|"imperial";onBack:()=>void;onSave:()=>void}){

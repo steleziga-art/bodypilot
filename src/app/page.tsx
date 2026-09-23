@@ -1740,6 +1740,13 @@ function MoreToggle({storageKey,title,detail}:{storageKey:string;title:string;de
 }
 
 
+function CloudFeatureFallback({ children }: { children: React.ReactNode }) {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
+    return <div className="rounded-xl border border-slate-200 bg-white p-5 text-slate-700">Account and Friends need the Supabase URL and publishable key configured for this deployment.</div>;
+  }
+  return <>{children}</>;
+}
+
 function MoreFullPage({
   page,
   trainingHistory,
@@ -1755,7 +1762,7 @@ function MoreFullPage({
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   if (page === "account") {
-    return <AccountPanel />;
+    return <CloudFeatureFallback><AccountPanel /></CloudFeatureFallback>;
   }
 
   if (page === "calendar") {
@@ -1924,6 +1931,8 @@ function ProfilePage({
   >("main");
   const [detailPage, setDetailPage] = useState<"main" | "profile" | "goals" | "display" | "data" | "fasting">("main");
   const [moreSearch, setMoreSearch] = useState("");
+  const [showLooksShortcut, setShowLooksShortcut] = useState(false);
+  useEffect(() => setShowLooksShortcut(localStorage.getItem("cyg-pin-looksmaxing") === "true"), []);
   const [profileSaved, setProfileSaved] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
 
@@ -2075,7 +2084,7 @@ function ProfilePage({
     { title: "Display & Appearance", detail: "Units and app preferences", icon: "▣", action: () => openDetail("display") },
     { title: "Fasting", detail: "Timer, schedule, history and streaks", icon: "◷", action: () => openDetail("fasting") },
     { title: "Looksmaxing", detail: planTier === "premium" ? "Premium appearance routine, scans and progress" : "Preview the Premium appearance module", icon: "✦", action: () => setActivePage("looksmaxing") },
-    { title: "Looksmaxing navigation", detail: "Toggle the Looksmaxing shortcut in the main navigation", icon: "＋", action: () => { const next = localStorage.getItem("cyg-pin-looksmaxing") !== "true"; localStorage.setItem("cyg-pin-looksmaxing", String(next)); window.dispatchEvent(new Event("cyg-navigation")); window.alert(next ? "Looksmaxing added to navigation" : "Looksmaxing available in More"); } },
+    { title: "Show Looksmaxing in navigation", detail: showLooksShortcut ? "On · shown beside Workout and Nutrition" : "Off · available from More", icon: showLooksShortcut ? "✓" : "＋", action: () => { const next = !showLooksShortcut; setShowLooksShortcut(next); localStorage.setItem("cyg-pin-looksmaxing", String(next)); window.dispatchEvent(new Event("cyg-navigation")); } },
     { title: "Friends", detail: "Add friends and control what they can see", icon: "♧", action: () => setMorePage("friends") },
     { title: "CYG Coach", detail: "Insights across training, nutrition and progress", icon: "✦", action: () => setMorePage("coach") },
     { title: "Progress", detail: "Weight, strength, records and measurements", icon: "↗", action: () => setActivePage("progress") },
@@ -2094,7 +2103,7 @@ function ProfilePage({
         <button onClick={() => setMorePage("main")} className="mb-6 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">← Back to More</button>
         <div className="mb-6"><p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">CYG</p><h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950">{morePanelTitle(morePage)}</h1></div>
         {morePage === "friends" ? (
-          <FriendsPanel />
+          <CloudFeatureFallback><FriendsPanel /></CloudFeatureFallback>
         ) : morePage === "coach" ? (
           planTier === "premium" ? (
             <CoachPage
@@ -2497,7 +2506,7 @@ function Dashboard({
                   <h2 className="mt-1 text-xl font-black text-slate-950">{activeWorkout.name || "Workout"}</h2>
                   <p className="mt-1 text-sm text-slate-600">{activeWorkout.exercises?.length ?? 0} exercises · {activeWorkout.exercises?.reduce((sum, exercise) => sum + (exercise.sets?.filter((set) => set.completed).length ?? 0), 0) ?? 0} completed sets</p>
                 </div>
-                <span className="rounded-xl bg-white px-3 py-2 text-sm font-black text-blue-700 shadow-sm">{formatLiveDuration(liveNow - new Date(activeWorkout.startedAt).getTime())}</span>
+                <span className="rounded-xl bg-white px-3 py-2 text-sm font-black text-blue-700 shadow-sm">{liveNow - new Date(activeWorkout.startedAt).getTime() > 12 * 3600000 ? "Resume timer" : formatLiveDuration(liveNow - new Date(activeWorkout.startedAt).getTime())}</span>
               </div>
               <span className="mt-4 inline-flex rounded-xl bg-blue-500 px-4 py-2 text-sm font-black text-white">Resume workout →</span>
             </button>
@@ -4464,6 +4473,11 @@ function PlanNumber({
   step?: number;
   onChange: (value: number) => void;
 }) {
+  const [draft, setDraft] = useState(() => String(value));
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    if (!editing) setDraft(String(value));
+  }, [value, editing]);
   return (
     <label>
       <span className="mb-2 block text-sm text-slate-600">
@@ -4472,13 +4486,21 @@ function PlanNumber({
       <div className="flex items-center rounded-xl border border-slate-300 bg-slate-50 focus-within:border-blue-500">
         <input
           type="number"
-          value={value}
+          value={editing ? draft : String(value)}
           min={min}
           max={max}
           step={step}
-          onChange={(event) =>
-            onChange(Number(event.target.value))
-          }
+          onFocus={() => setEditing(true)}
+          onChange={(event) => {
+            const next = event.target.value;
+            setDraft(next);
+            if (next !== "" && Number.isFinite(Number(next))) onChange(Number(next));
+          }}
+          onBlur={() => {
+            setEditing(false);
+            const parsed = Number(draft);
+            if (draft !== "" && Number.isFinite(parsed)) onChange(Math.min(max, Math.max(min, parsed)));
+          }}
           className="w-full bg-transparent p-4 outline-none"
         />
         <span className="pr-4 text-sm text-slate-500">

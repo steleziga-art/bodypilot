@@ -59,5 +59,6 @@ export type WorkoutHistoryEntry = {
   startedAt: string;
   finishedAt: string;
   durationSeconds: number;
+  estimatedCalories?: number;
   exercises: WorkoutExercise[];
 };

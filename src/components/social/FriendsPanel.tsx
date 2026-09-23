@@ -245,7 +245,12 @@ export default function FriendsPanel() {
     setLoading(false);
   }
 
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => {
+    void refresh().catch((error) => {
+      setMessage(error instanceof Error ? error.message : "Could not load friends.");
+      setLoading(false);
+    });
+  }, []);
 
   async function saveProfile() {
     if (!me) return;

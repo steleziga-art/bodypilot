@@ -25,6 +25,8 @@ export default function AccountPanel() {
         setSession(data.session);
         setLoading(false);
       }
+    }).catch(() => {
+      if (mounted) { setError("Could not connect to CYG Cloud. Try again later."); setLoading(false); }
     });
 
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {

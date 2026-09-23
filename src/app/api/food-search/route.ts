@@ -705,18 +705,6 @@ export async function GET(
   const apiKey =
     process.env.USDA_API_KEY;
 
-  if (!apiKey) {
-    return NextResponse.json(
-      {
-        error:
-          "USDA API key is missing.",
-      },
-      {
-        status: 500,
-      }
-    );
-  }
-
   const translatedQuery =
     translateQuery(rawQuery);
 
@@ -729,10 +717,7 @@ export async function GET(
       usdaFoods,
       europeanFoods,
     ] = await Promise.all([
-      searchUSDA(
-        translatedQuery,
-        apiKey
-      ),
+      (apiKey ? searchUSDA(translatedQuery, apiKey) : Promise.resolve([])).catch(() => [] as BodyPilotFood[]),
 
       /*
         For branded products the ORIGINAL query
@@ -741,9 +726,7 @@ export async function GET(
         Example:
         "Milbona Skyr"
       */
-      searchOpenFoodFacts(
-        rawQuery
-      ),
+      searchOpenFoodFacts(rawQuery).catch(() => [] as BodyPilotFood[]),
     ]);
 
     const allFoods = [

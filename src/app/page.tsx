@@ -378,37 +378,31 @@ export default function Home() {
       }
 
       const today = getTodayDateInput();
+      const savedDate =
+        normalizeDateKey(savedFoodDiaryDate) || today;
+      const parsedFoods = parseFoodList(savedFoods);
+      const parsedDiaryHistory =
+        parseFoodDiaryHistory(savedFoodDiaryHistory);
+      const migratedDiaryHistory =
+        migrateLegacyFoodsIntoDiary(
+          parsedDiaryHistory,
+          parsedFoods,
+          savedDate
+        );
 
-      if (savedFoodDiaryHistory) {
-        const parsedDiaryHistory = JSON.parse(savedFoodDiaryHistory);
+      setFoodDiaryHistory(migratedDiaryHistory);
 
-        if (Array.isArray(parsedDiaryHistory)) {
-          setFoodDiaryHistory(parsedDiaryHistory);
-
-          const todayDiary = parsedDiaryHistory.find(
-            (day: FoodDiaryDay) => day.date === today
-          );
-
-          if (todayDiary && Array.isArray(todayDiary.foods)) {
-            setFoods(todayDiary.foods);
-          } else if (savedFoodDiaryDate === today && savedFoods) {
-            const parsedFoods = JSON.parse(savedFoods);
-            if (Array.isArray(parsedFoods)) setFoods(parsedFoods);
-          } else {
-            setFoods([]);
-          }
-        }
-      } else if (savedFoods) {
-        const parsedFoods = JSON.parse(savedFoods);
-
-        if (Array.isArray(parsedFoods)) {
-          const savedDate = savedFoodDiaryDate || today;
-          if (savedDate === today) setFoods(parsedFoods);
-          else setFoodDiaryHistory([{date:savedDate, foods:parsedFoods}]);
-        }
+      if (savedDate === today && parsedFoods.length > 0) {
+        setFoods(parsedFoods);
+      } else {
+        setFoods(diaryForDate(migratedDiaryHistory, today));
       }
 
       localStorage.setItem("bodypilot-food-diary-date", today);
+      localStorage.setItem(
+        "bodypilot-food-diary-history",
+        JSON.stringify(migratedDiaryHistory)
+      );
 
       if (savedMeals) {
         const parsedMeals =
@@ -514,7 +508,9 @@ export default function Home() {
     let cancelled = false;
 
     async function hydrateFromCloud() {
-      const diaryBeforeHydration: FoodDiaryDay[] = (()=>{try{return JSON.parse(localStorage.getItem("bodypilot-food-diary-history")||"[]")}catch{return []}})();
+      const diaryBeforeHydration = parseFoodDiaryHistory(
+        localStorage.getItem("bodypilot-food-diary-history")
+      );
       const [
         cloudFoods,
         cloudMeals,
@@ -541,12 +537,22 @@ export default function Home() {
 
       // Legacy cloud `foods` has no date and must never overwrite today's diary.
       if (Array.isArray(cloudFoodDiaryHistory)) {
-        const localDiary: FoodDiaryDay[] = (() => { try { return JSON.parse(localStorage.getItem("bodypilot-food-diary-history") || "[]"); } catch { return []; } })();
-        const merged = mergeDatedDiaries(cloudFoodDiaryHistory, localDiary, diaryBeforeHydration.map(day=>day.date));
+        const localDiary = parseFoodDiaryHistory(
+          localStorage.getItem("bodypilot-food-diary-history")
+        );
+        const merged = mergeDatedDiaries(
+          parseFoodDiaryHistory(JSON.stringify(cloudFoodDiaryHistory)),
+          localDiary,
+          diaryBeforeHydration.map(day=>day.date)
+        );
         setFoodDiaryHistory(merged);
         const today = getTodayDateInput();
         setDiaryDate(today); diaryDateRef.current = today;
         setFoods(diaryForDate(merged, today));
+      } else if (Array.isArray(cloudFoods)) {
+        const today = getTodayDateInput();
+        setDiaryDate(today); diaryDateRef.current = today;
+        setFoods(diaryForDate(diaryBeforeHydration, today));
       }
       if (Array.isArray(cloudMeals) && cloudMeals.length) setMeals(cloudMeals);
       if (cloudGoals) setGoals(cloudGoals);
@@ -591,7 +597,6 @@ export default function Home() {
 
     if (cloudReady) {
       void Promise.all([
-        saveCloudData("foods", foods),
         saveCloudData("meals", meals),
         saveCloudData("goals", goals),
         saveCloudData("weight", weightEntries),
@@ -6450,13 +6455,77 @@ async function compressProgressPhoto(file: File) {
 }
 
 function getTodayDateInput() {
-  const now = new Date();
-  const local = new Date(
-    now.getTime() -
-      now.getTimezoneOffset() * 60000
-  );
+  return formatLocalDateKey(new Date());
+}
 
-  return local.toISOString().slice(0, 10);
+function formatLocalDateKey(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function normalizeDateKey(value: unknown) {
+  if (typeof value !== "string") return null;
+  const match = value.match(/^\d{4}-\d{2}-\d{2}/);
+  return match ? match[0] : null;
+}
+
+function parseFoodList(raw: string | null): Food[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(isFood) : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseFoodDiaryHistory(raw: string | null): FoodDiaryDay[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((day) => ({
+        date: normalizeDateKey(day?.date) || "",
+        foods: Array.isArray(day?.foods) ? day.foods.filter(isFood) : [],
+      }))
+      .filter((day) => day.date)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  } catch {
+    return [];
+  }
+}
+
+function migrateLegacyFoodsIntoDiary(
+  history: FoodDiaryDay[],
+  legacyFoods: Food[],
+  legacyDate: string
+) {
+  if (legacyFoods.length === 0) return history;
+
+  const existing = history.find((day) => day.date === legacyDate);
+  if (existing && existing.foods.length > 0) return history;
+
+  return [
+    ...history.filter((day) => day.date !== legacyDate),
+    { date: legacyDate, foods: legacyFoods },
+  ].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function isFood(value: unknown): value is Food {
+  if (!value || typeof value !== "object") return false;
+  const food = value as Partial<Food>;
+  return (
+    typeof food.id === "number" &&
+    typeof food.name === "string" &&
+    typeof food.calories === "number" &&
+    typeof food.protein === "number" &&
+    typeof food.carbs === "number" &&
+    typeof food.fat === "number"
+  );
 }
 
 function getWeightEntryTime(

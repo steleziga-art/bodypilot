@@ -17,6 +17,7 @@ import Looksmaxing from "@/components/looksmaxing/Looksmaxing";
 import PremiumPaywall from "@/components/premium/PremiumPaywall";
 import { applyMucipesAppearance, cmToDisplay, displayToCm, displayToKg, formatEnergy, formatLength, formatWeight, kgToDisplay, lengthUnitLabel, weightUnitLabel } from "@/lib/mucipes/display";
 import { loadCloudData, saveCloudData } from "@/lib/supabase/storage";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type Page =
   | "dashboard"
@@ -310,6 +311,18 @@ export default function Home() {
     useState(false);
 
   const [cloudReady, setCloudReady] = useState(false);
+  const [authVersion, setAuthVersion] = useState(0);
+  useEffect(() => {
+    let client: ReturnType<typeof getSupabaseBrowserClient>;
+    try { client = getSupabaseBrowserClient(); } catch { return; }
+    const { data } = client.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
+        setCloudReady(false);
+        setAuthVersion(version => version + 1);
+      }
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
 
   const [showOnboarding, setShowOnboarding] =
     useState(false);
@@ -568,7 +581,7 @@ export default function Home() {
 
     void hydrateFromCloud();
     return () => { cancelled = true; };
-  }, [loaded]);
+  }, [loaded, authVersion]);
 
   useEffect(() => {
     if (!loaded) {
@@ -613,7 +626,7 @@ export default function Home() {
   ]);
 
   useEffect(() => {
-    if (!loaded) {
+    if (!loaded || !cloudReady) {
       return;
     }
 

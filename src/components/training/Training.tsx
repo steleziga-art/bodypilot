@@ -7,7 +7,7 @@ import LyftaImport from "./LyftaImport";
 import { ExerciseArt, AnatomyMap } from "./TrainingVisuals";
 import { HistoryView, ExerciseView, ProgressView } from "./TrainingViews";
 import CardioFields from "./CardioFields";
-import { cardioNames, isCardioExercise, cardioCalories, getWorkoutWeight } from "./workoutCardio";
+import { isCardioExercise, cardioCalories, getWorkoutWeight } from "./workoutCardio";
 import "./training-visual.css";
 import { loadCloudData, saveCloudData, deleteCloudData } from "@/lib/supabase/storage";
 import type {
@@ -1922,7 +1922,6 @@ function WorkoutTab({
       >
         + Add exercise
       </button>
-      <div className="cyg-add-cardio"><label htmlFor="cyg-cardio-choice">+ Add cardio</label><select id="cyg-cardio-choice" value="" onChange={event => { const name = event.target.value; if (name) addExercise(exercises.find(item => item.name === name) || { id: `cardio-${name.toLowerCase().replaceAll(" ", "-")}`, name, muscleGroup: "Other" }); }}><option value="">Choose activity…</option>{cardioNames.map(name => <option key={name} value={name}>{name}</option>)}</select></div>
 
       {showExercisePicker && (
         <section className="mt-5 rounded-3xl border border-blue-400/30 bg-white p-6">
@@ -2833,5 +2832,4 @@ function estimateWorkoutCalories(startedAt: string, finishedAt: Date, exercises:
   const strengthMinutes = exercises.some(exercise => !exercise.cardio) ? Math.max(0, minutes - cardioMinutes) : 0;
   return Math.round(4.5 * 3.5 * bodyWeight / 200 * strengthMinutes + cardio.reduce((sum, exercise) => sum + cardioCalories(exercise, bodyWeight), 0));
 }
-
 

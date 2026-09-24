@@ -60,10 +60,8 @@
 
 .cyg-cardio-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:18px;background:#f7f9ff;border-radius:16px}
 .cyg-cardio-fields label{display:grid;gap:5px;font-size:12px;font-weight:700;color:#334465}
-.cyg-cardio-fields input,.cyg-cardio-fields select,.cyg-add-cardio select,.cyg-history-add input{min-width:0;width:100%;border:1px solid #b9c6df;border-radius:10px;background:white;color:#18233b;padding:10px}
+.cyg-cardio-fields input,.cyg-cardio-fields select,.cyg-history-add input{min-width:0;width:100%;border:1px solid #b9c6df;border-radius:10px;background:white;color:#18233b;padding:10px}
 .cyg-cardio-estimate{grid-column:1/-1;color:#123ba5;font-weight:800}
-.cyg-add-cardio{display:flex;align-items:center;gap:12px;margin:18px 0;padding:16px;border:1px solid #b9c6df;border-radius:16px;background:#f7f9ff}
-.cyg-add-cardio label{font-weight:800;white-space:nowrap;color:#18346c}
 .cyg-history-detail{display:block;border:1px solid #d6dce7;border-radius:18px;overflow:hidden;margin-top:16px;padding:0 0 12px;background:#fff}
 .cyg-history-exercise-header{display:flex;align-items:center;gap:12px;padding:14px}
 .cyg-history-exercise-header>div:nth-child(2){display:grid;gap:4px;flex:1;min-width:0}
@@ -77,4 +75,4 @@
 .cyg-history-detail>.mv-link,.cyg-remove-exercise{margin:6px 14px}
 .cyg-history-add{display:flex;gap:10px;margin:16px 0}
 .cyg-history-add input{flex:1}
-@media(max-width:500px){.cyg-add-cardio{flex-wrap:wrap}.cyg-history-set-heading,.cyg-history-set{grid-template-columns:30px minmax(95px,1fr) 65px 35px 15px;padding:10px 6px}.cyg-history-set strong{font-size:14px}}
+@media(max-width:500px){.cyg-history-set-heading,.cyg-history-set{grid-template-columns:30px minmax(95px,1fr) 65px 35px 15px;padding:10px 6px}.cyg-history-set strong{font-size:14px}}

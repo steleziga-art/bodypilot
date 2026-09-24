@@ -4,6 +4,88 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 // without changing the storage layer every time a feature is added.
 export type MucipesStorageKey = string;
 
+const PRIVATE_CACHE_DB = "cyg-private-cache";
+const PRIVATE_CACHE_STORE = "accounts";
+
+function privateCacheDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") return reject(new Error("IndexedDB unavailable"));
+    const request = indexedDB.open(PRIVATE_CACHE_DB, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(PRIVATE_CACHE_STORE)) {
+        request.result.createObjectStore(PRIVATE_CACHE_STORE);
+      }
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Could not open local account cache"));
+  });
+}
+
+function privateDataKeys(): string[] {
+  const keys: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    const appDataKey = key && (key.startsWith("bodypilot-") || key.startsWith("cyg-") || key.startsWith("mucipes-"));
+    if (key && appDataKey && !["bodypilot-settings", "cyg-cloud-outbox"].includes(key)) keys.push(key);
+  }
+  return keys;
+}
+
+function clearPrivateLocalData() {
+  for (const key of privateDataKeys()) localStorage.removeItem(key);
+}
+
+/** Move account-specific browser cache out of the shared app keys before logout. */
+export async function cacheAccountDataLocally(userId: string): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  try {
+    const snapshot: Record<string, string> = {};
+    for (const key of privateDataKeys()) {
+      const value = localStorage.getItem(key);
+      if (value !== null) snapshot[key] = value;
+    }
+    const db = await privateCacheDb();
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(PRIVATE_CACHE_STORE, "readwrite");
+      tx.objectStore(PRIVATE_CACHE_STORE).put(snapshot, userId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error("Could not save local account cache"));
+      tx.onabort = () => reject(tx.error || new Error("Local account cache save aborted"));
+    });
+    db.close();
+    return true;
+  } catch (error) {
+    console.error("CYG: could not preserve local account cache:", error);
+    return false;
+  }
+}
+
+/** Clear shared keys while logged out, then restore only this account's cache on sign-in. */
+export async function restoreAccountDataLocally(userId: string): Promise<boolean> {
+  if (typeof window === "undefined") return false;
+  try {
+    const db = await privateCacheDb();
+    const snapshot = await new Promise<Record<string, string> | undefined>((resolve, reject) => {
+      const request = db.transaction(PRIVATE_CACHE_STORE, "readonly").objectStore(PRIVATE_CACHE_STORE).get(userId);
+      request.onsuccess = () => resolve(request.result as Record<string, string> | undefined);
+      request.onerror = () => reject(request.error || new Error("Could not load local account cache"));
+    });
+    db.close();
+    if (snapshot) {
+      clearPrivateLocalData();
+      for (const [key, value] of Object.entries(snapshot)) localStorage.setItem(key, value);
+    }
+    return true;
+  } catch (error) {
+    console.error("CYG: could not restore local account cache:", error);
+    return false;
+  }
+}
+
+export function clearPrivateAccountCache() {
+  if (typeof window !== "undefined") clearPrivateLocalData();
+}
+
 async function getUserId() {
   const supabase = getSupabaseBrowserClient();
   const { data: { session } } = await supabase.auth.getSession();

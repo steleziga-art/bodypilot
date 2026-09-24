@@ -1,5 +1,6 @@
 "use client";
 
+import { CygIcon, EnergyRing, MacroTrack, PageHeader } from "@/components/ui/CygUI";
 import { Dispatch, SetStateAction, useEffect, useMemo, useState } from "react";
 import FoodSearch from "@/components/FoodSearch";
 import MealOptimizer from "@/components/MealOptimizer";
@@ -343,27 +344,10 @@ export default function NutritionHub({
   const hasYesterday = foodDiaryHistory.some((day) => day.date === yesterdayKey() && day.foods.length > 0);
 
   return (
-    <div className="space-y-5">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-600">Nutrition</p>
-          <h1 className="mt-1 text-4xl font-black tracking-tight text-slate-950">Eat with a plan.</h1>
-          <p className="mt-2 text-sm text-slate-500">Log fast, see what is left, and keep deeper analysis one tap away.</p>
-        </div>
-        <button onClick={() => openAdd("menu")} className="rounded-2xl bg-blue-500 px-5 py-3 text-sm font-black text-white shadow-sm">+ Add food</button>
-      </header>
-
-      <div className="flex rounded-2xl bg-slate-100 p-1">
-        {(["today", "history", "insights", "library"] as const).map((name) => (
-          <button
-            key={name}
-            onClick={() => setTab(name)}
-            className={`flex-1 rounded-xl px-4 py-3 text-sm font-black capitalize transition ${tab === name ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}
-          >
-            {name}
-          </button>
-        ))}
-      </div>
+    <div className="cyg-nutrition-page space-y-4">
+      <PageHeader title="Nutrition" action={<div className="flex gap-2"><button className="cyg-icon-button" aria-label="Open nutrition history" onClick={()=>setTab('history')}><CygIcon name="calendar"/></button><button className="cyg-icon-button" aria-label="Nutrition targets" onClick={()=>{setTab('today');setShowGoals(value=>!value)}}><CygIcon name="dots"/></button></div>}/>
+      <div className="cyg-segments">{([['today','Diary'],['history','History'],['insights','Insights'],['library','Library']] as const).map(([name,label])=><button key={name} onClick={()=>setTab(name)} className={tab===name?'is-active':''}>{label}</button>)}</div>
+      {tab==='today'&&<div className="cyg-date-control"><button aria-label="Yesterday's diary" onClick={()=>{setHistoryDate(yesterdayKey());setTab('history')}}><CygIcon name="back" size={20}/></button><strong>{new Date().toLocaleDateString('en',{weekday:'short',month:'short',day:'numeric'})}</strong><button aria-label="Next day" disabled><CygIcon name="chevron" size={20}/></button></div>}
 
       {removedFood&&<div role="status" className="rounded-xl border p-3 text-sm">Food removed. <button className="ml-3 font-bold text-blue-700" onClick={()=>{addFood(removedFood);setRemovedFood(null)}}>Undo</button><button className="ml-3" aria-label="Dismiss undo" onClick={()=>setRemovedFood(null)}>×</button></div>}
       {diaryMessage && (
@@ -389,26 +373,9 @@ export default function NutritionHub({
 
       {tab === "today" && (
         <>
-          <section className="rounded-[2rem] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div>
-                <p className="text-xs font-black uppercase tracking-widest text-slate-600">Today</p>
-                <p className="mt-2 text-4xl font-black text-slate-950">
-                  {formatEnergy(caloriesEaten, displaySettings.energyUnit)}
-                  <span className="ml-2 text-lg font-bold text-slate-600">/ {formatEnergy(goals.calories, displaySettings.energyUnit)}</span>
-                </p>
-                <p className="mt-2 text-sm text-slate-500">{formatEnergy(Math.max(0, caloriesRemaining), displaySettings.energyUnit)} remaining</p>
-              </div>
-              <button onClick={() => setShowGoals((value) => !value)} className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-700">Edit targets</button>
-            </div>
-            <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100">
-              <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${caloriePct}%` }} />
-            </div>
-            <div className="mt-5 grid grid-cols-3 gap-3">
-              <MacroMini label="Protein" value={proteinEaten} goal={goals.protein} />
-              <MacroMini label="Carbs" value={carbsEaten} goal={goals.carbs} />
-              <MacroMini label="Fat" value={fatEaten} goal={goals.fat} />
-            </div>
+          <section className="cyg-card cyg-diary-summary">
+            <div className="cyg-nutrition-summary"><EnergyRing value={kcalToDisplay(caloriesEaten,displaySettings.energyUnit)} goal={kcalToDisplay(goals.calories,displaySettings.energyUnit)} unit={energyUnitLabel(displaySettings.energyUnit)}/><div><h2 className="mb-3 text-sm font-bold">Macros</h2><MacroTrack label="Protein" value={proteinEaten} goal={goals.protein}/><MacroTrack label="Carbs" value={carbsEaten} goal={goals.carbs}/><MacroTrack label="Fats" value={fatEaten} goal={goals.fat}/></div></div>
+            <p className="cyg-card-footnote">{formatEnergy(Math.max(0,caloriesRemaining),displaySettings.energyUnit)} remaining today</p>
           </section>
 
           {showGoals && (
@@ -427,23 +394,24 @@ export default function NutritionHub({
             </section>
           )}
 
-          <section className="space-y-3">
+          <section className="cyg-meals">
             {meals.map((meal) => {
               const mealFoods = foods.filter((food) => (food.mealId || "breakfast") === meal.id);
               const totals = mealTotals(mealFoods);
               const expanded = Boolean(expandedMeals[meal.id]);
               return (
-                <div key={meal.id} className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+                <div key={meal.id} className="cyg-meal-card overflow-hidden border border-slate-200 bg-white shadow-sm">
                   <button
                     onClick={() => setExpandedMeals((current) => ({ ...current, [meal.id]: !current[meal.id] }))}
-                    className="flex w-full items-center gap-3 p-5 text-left"
+                    className="cyg-meal-header"
                   >
+                    <span className={`cyg-meal-symbol ${meal.id}`}><CygIcon name={meal.id==='breakfast'?'sun':meal.id==='dinner'?'moon':'nutrition'} size={24}/></span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <h3 className="truncate text-lg font-black text-slate-950">{meal.name}</h3>
                         <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-500">{mealFoods.length}</span>
                       </div>
-                      <p className="mt-1 text-sm text-slate-500">{formatEnergy(totals.calories, displaySettings.energyUnit)} · {round1(totals.protein)} g protein</p>
+                      <p className="mt-1 text-sm text-slate-500">{formatEnergy(totals.calories, displaySettings.energyUnit)} · {round1(totals.protein)}P · {round1(totals.carbs)}C · {round1(totals.fat)}F</p>
                     </div>
                     <span className="text-xl text-slate-600">{expanded ? "⌃" : "⌄"}</span>
                   </button>
@@ -453,23 +421,10 @@ export default function NutritionHub({
                       {mealFoods.length ? (
                         <div className="space-y-2">
                           {mealFoods.map((food) => (
-                            <div key={food.id} className="rounded-2xl bg-slate-50 p-3">
-                              <div className="flex items-start gap-3">
-                                <div className="min-w-0 flex-1">
-                                  <p className="truncate font-black text-slate-900">{food.name}</p>
-                                  <p className="mt-1 text-xs text-slate-500">{formatEnergy(food.calories, displaySettings.energyUnit)} · {round1(food.protein)}P · {round1(food.carbs)}C · {round1(food.fat)}F</p>
-                                </div>
-                                <div className="flex gap-1">
-                                  <button onClick={() => setEditingFood({ ...food })} className="rounded-lg bg-white px-2.5 py-2 text-[11px] font-black text-slate-600">Edit</button>
-                                  <button onClick={() => duplicateFood(food.id)} className="rounded-lg bg-white px-2.5 py-2 text-[11px] font-black text-slate-600">Copy</button>
-                                  <button onClick={() => deleteFood(food.id)} className="rounded-lg bg-white px-2.5 py-2 text-[11px] font-black text-rose-500">×</button>
-                                </div>
-                              </div>
-                              {meals.length > 1 && (
-                                <select value={food.mealId || "breakfast"} onChange={(event) => moveFood(food.id, event.target.value)} className="mt-2 w-full rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-bold outline-none">
-                                  {meals.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-                                </select>
-                              )}
+                            <div key={food.id} className="cyg-food-item">
+                              <span className="cyg-food-emoji" aria-hidden="true"><CygIcon name={/oat|cereal|granola|rice/i.test(food.name)?'bowl':/yog|skyr|milk/i.test(food.name)?'water':/chicken|turkey|egg/i.test(food.name)?'protein':'nutrition'} size={22}/></span>
+                              <div><strong>{food.name}</strong><p>{round1(food.protein)}P · {round1(food.carbs)}C · {round1(food.fat)}F</p><details className="cyg-food-details"><summary aria-label={`Options for ${food.name}`}>Edit · more</summary><div className="cyg-food-actions"><button onClick={()=>setEditingFood({...food})}>Edit</button><button onClick={()=>duplicateFood(food.id)}>Copy</button><select aria-label={`Meal for ${food.name}`} value={food.mealId||'breakfast'} onChange={event=>moveFood(food.id,event.target.value)}>{meals.map(option=><option key={option.id} value={option.id}>{option.name}</option>)}</select><button onClick={()=>deleteFood(food.id)}>Delete</button></div></details></div>
+                              <span className="cyg-food-energy">{formatEnergy(food.calories,displaySettings.energyUnit)}</span>
                             </div>
                           ))}
                         </div>

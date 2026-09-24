@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { Exercise, WorkoutHistoryEntry, WorkoutSet } from "./types";
+import { resolveExercise } from "./exerciseIdentity";
 
 type Props = {
   exercises: Exercise[];
@@ -90,14 +91,7 @@ function slug(value: string) {
 }
 
 function mapExercise(name: string, exercises: Exercise[]) {
-  const n = name.trim().toLowerCase();
-  const exact = exercises.find((exercise) => exercise.name.trim().toLowerCase() === n);
-  if (exact) return exact;
-  const loose = exercises.find((exercise) => {
-    const e = exercise.name.trim().toLowerCase();
-    return e.includes(n) || n.includes(e);
-  });
-  return loose ?? { id: `import-${slug(name)}`, name: name.trim() || "Imported exercise", muscleGroup: "Other" as const, custom: true };
+  return resolveExercise(name, exercises) ?? { id: `import-${slug(name)}`, name: name.trim() || "Imported exercise", muscleGroup: "Other" as const, custom: true };
 }
 
 function rowsToHistory(rows: ParsedSet[], exercises: Exercise[]) {
@@ -114,14 +108,17 @@ function rowsToHistory(rows: ParsedSet[], exercises: Exercise[]) {
     sets.forEach((set) => byExercise.set(set.exercise, [...(byExercise.get(set.exercise) ?? []), set]));
     const finishedAt = new Date(date);
     finishedAt.setHours(12, 0, 0, 0);
-    const startedAt = new Date(finishedAt.getTime() - 60 * 60 * 1000);
+    const durationSeconds = Math.max(8 * 60, 3 * 60 + sets.reduce((count, row) => count + (row.reps > 0 ? 1 : 0), 0) * 150 + byExercise.size * 90);
+    const startedAt = new Date(finishedAt.getTime() - durationSeconds * 1000);
 
     return {
       id: `lyfta-${finishedAt.getTime()}-${workoutIndex}-${slug(workoutName)}`,
       name: workoutName,
       startedAt: startedAt.toISOString(),
       finishedAt: finishedAt.toISOString(),
-      durationSeconds: 3600,
+      // The export has no session duration column. Estimate from logged work
+      // instead of assigning every imported workout a misleading 60 minutes.
+      durationSeconds,
       exercises: Array.from(byExercise.entries()).map(([name, exerciseSets], exerciseIndex) => {
         const mapped = mapExercise(name, exercises);
         return {

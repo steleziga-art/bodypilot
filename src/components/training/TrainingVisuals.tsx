@@ -74,10 +74,12 @@ export function AnatomyMap({
 export function TrainingNavIcon({ name }: { name: string }) {
   const paths: Record<string, ReactNode> = {
     Workout: <><path d="M6 5v14M3 8v8M18 5v14M21 8v8M6 12h12" /></>,
+    Overview: <><path d="M6 5v14M3 8v8M18 5v14M21 8v8M6 12h12" /></>,
     Exercises: <><circle cx="10" cy="10" r="6" /><path d="m15 15 6 6" /></>,
     History: <><rect x="4" y="5" width="16" height="16" rx="2" /><path d="M8 3v4m8-4v4M4 10h16M8 14h3m2 3h3" /></>,
     Progress: <><path d="M4 20V12h3v8zm6 0V7h3v13zm6 0V3h3v17z" /></>,
     Routines: <><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>,
+    Program: <><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></>,
   };
 
   return (

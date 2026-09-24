@@ -1,4 +1,6 @@
 "use client";
+import WorkoutOverview from "./WorkoutOverview";
+import {CygIcon,PageHeader} from "@/components/ui/CygUI";
 import {TrainingNavIcon} from './TrainingVisuals';
 
 import { useEffect, useMemo, useState, useRef } from "react";
@@ -7,6 +9,7 @@ import LyftaImport from "./LyftaImport";
 import { ExerciseArt, AnatomyMap } from "./TrainingVisuals";
 import { HistoryView, ExerciseView, ProgressView } from "./TrainingViews";
 import CardioFields from "./CardioFields";
+import { historyDurationSeconds } from "./exerciseIdentity";
 import { isCardioExercise, cardioCalories, getWorkoutWeight } from "./workoutCardio";
 import "./training-visual.css";
 import { loadCloudData, saveCloudData, deleteCloudData } from "@/lib/supabase/storage";
@@ -375,6 +378,15 @@ export default function Training() {
     setActiveTab("workout");
   }
 
+  useEffect(()=>{
+    if(!loaded || !cloudReady || activeWorkout)return;
+    const intent=sessionStorage.getItem("cyg-start-routine");
+    if(!intent)return;
+    sessionStorage.removeItem("cyg-start-routine");
+    const routine=savedWorkouts.find(r=>r.name.toLowerCase()===intent.toLowerCase())||savedWorkouts.find(r=>r.name.toLowerCase()===intent.replace(/ B$/i,"").toLowerCase());
+    if(routine)startSavedWorkout({...routine,name:intent==='empty'?routine.name:intent});else startEmptyWorkout();
+  },[loaded,cloudReady,activeWorkout,savedWorkouts]);
+
   function finishWorkout() { commitWorkout(); }
 
   function commitWorkout() {
@@ -530,24 +542,14 @@ export default function Training() {
 
   return (
     <div className="mv-training">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-xs font-black uppercase tracking-[0.2em] text-blue-600">Training</p>
-          <h1 className="mt-1 text-3xl font-black tracking-tight text-slate-950">CYG</h1>
-        </div>
-        {!activeWorkout && (
-          <button onClick={startEmptyWorkout} className="rounded-2xl bg-blue-500 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:bg-blue-600 active:scale-[.98]">
-            + Start workout
-          </button>
-        )}
-      </div>
+      <PageHeader title="Workouts" action={<button className="cyg-icon-button" aria-label="Start an empty workout" onClick={startEmptyWorkout}><CygIcon name="plus"/></button>}/>
 
-      <div className="mv-nav sticky top-2 z-20 grid grid-cols-5 gap-1 rounded-2xl border border-slate-200 bg-white/95 p-1.5 shadow-sm backdrop-blur">
-        <TabButton name="Workout" tab="workout" activeTab={activeTab} setActiveTab={setActiveTab} />
+      <div className="mv-nav" role="tablist" aria-label="Workout sections">
+        <TabButton name="Overview" tab="workout" activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton name="Exercises" tab="exercises" activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton name="History" tab="history" activeTab={activeTab} setActiveTab={setActiveTab} />
         <TabButton name="Progress" tab="analytics" activeTab={activeTab} setActiveTab={setActiveTab} />
-        <TabButton name="Routines" tab="saved" activeTab={activeTab} setActiveTab={setActiveTab} />
+        <TabButton name="Program" tab="saved" activeTab={activeTab} setActiveTab={setActiveTab} />
       </div>
 
       {activeTab === "workout" && (
@@ -563,6 +565,7 @@ export default function Training() {
           discardWorkout={discardWorkout}
           saveCurrentWorkout={saveCurrentWorkout}
           displayUnits={displayUnits}
+          onNavigate={setActiveTab}
         />
       )}
 
@@ -598,8 +601,10 @@ export default function Training() {
             updateHistoryEntry={entry=>setHistory(current=>current.map(w=>w.id===entry.id?{...entry,estimatedCalories:estimateWorkoutCalories(entry.startedAt,new Date(entry.finishedAt),entry.exercises)}:w))}
             restoreHistoryEntry={entry=>setHistory(current=>[entry,...current.filter(w=>w.id!==entry.id)].sort((a,b)=>Date.parse(b.finishedAt)-Date.parse(a.finishedAt)))}
             displayUnits={displayUnits}
-            onOpenExercise={(exerciseId) => {
+            onOpenExercise={(exerciseId, clickedName) => {
               sessionStorage.setItem("cyg-open-exercise", exerciseId);
+              const historyName = clickedName || history.flatMap(workout => workout.exercises).find(exercise => exercise.exerciseId === exerciseId)?.exerciseName;
+              if (historyName) sessionStorage.setItem("cyg-open-exercise-name", historyName);
               setActiveTab("exercises");
               window.scrollTo({ top: 0, behavior: "smooth" });
             }}
@@ -639,6 +644,7 @@ function WorkoutTab({
   discardWorkout,
   saveCurrentWorkout,
   displayUnits,
+  onNavigate,
 }: {
   activeWorkout: ActiveWorkout | null;
   setActiveWorkout: React.Dispatch<
@@ -655,6 +661,7 @@ function WorkoutTab({
   discardWorkout: () => void;
   saveCurrentWorkout: () => void;
   displayUnits: "metric" | "imperial";
+  onNavigate: (tab: "saved" | "history" | "exercises" | "analytics") => void;
 }) {
   const readWorkoutDisplaySettings = () => {
     try {
@@ -933,106 +940,7 @@ function WorkoutTab({
   }
 
   if (!activeWorkout) {
-    const today = new Date();
-    const monday = new Date(today);
-    const day = today.getDay() || 7;
-    monday.setDate(today.getDate() - day + 1);
-    monday.setHours(0, 0, 0, 0);
-    const week = Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(monday);
-      date.setDate(monday.getDate() + index);
-      const hasWorkout = history.some((item) => {
-        const d = new Date(item.finishedAt);
-        return d.toDateString() === date.toDateString();
-      });
-      return { date, hasWorkout, isToday: date.toDateString() === today.toDateString() };
-    });
-    const recent = [...history].sort((a, b) => new Date(b.finishedAt).getTime() - new Date(a.finishedAt).getTime()).slice(0, 3);
-    const lastSeven = history.filter((item) => Date.now() - new Date(item.finishedAt).getTime() < 7 * 86400000);
-    const weeklySets = lastSeven.reduce((sum, item) => sum + item.exercises.reduce((n, ex) => n + ex.sets.filter((set) => set.completed).length, 0), 0);
-    const nextRoutine = savedWorkouts.length ? [...savedWorkouts].sort((a,b) => {
-      const aLast = history.find(h=>h.name===a.name)?.finishedAt;
-      const bLast = history.find(h=>h.name===b.name)?.finishedAt;
-      return (aLast ? new Date(aLast).getTime() : 0) - (bLast ? new Date(bLast).getTime() : 0);
-    })[0] : null;
-    const recentVolume = lastSeven.reduce((sum,item)=>sum+item.exercises.reduce((n,ex)=>n+ex.sets.reduce((v,set)=>v+set.weight*set.reps,0),0),0);
-
-    return (
-      <div className="mt-5 space-y-5">
-        <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-black uppercase tracking-widest text-slate-600">This week</p>
-              <p className="mt-1 text-sm font-bold text-slate-700">{lastSeven.length} workouts · {weeklySets} working sets</p>
-            </div>
-            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-black text-blue-700">{today.toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
-          </div>
-          <div className="mt-4 grid grid-cols-7 gap-1.5">
-            {week.map(({ date, hasWorkout, isToday }) => (
-              <div key={date.toISOString()} className={`rounded-2xl px-1 py-2.5 text-center ${isToday ? "bg-slate-950 text-white" : "bg-slate-50 text-slate-600"}`}>
-                <p className="text-[10px] font-black uppercase">{date.toLocaleDateString(undefined, { weekday: "narrow" })}</p>
-                <p className="mt-1 text-sm font-black">{date.getDate()}</p>
-                <div className={`mx-auto mt-1.5 h-1.5 w-1.5 rounded-full ${hasWorkout ? "bg-blue-500" : isToday ? "bg-slate-600" : "bg-slate-200"}`} />
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section className="overflow-hidden rounded-[30px] bg-slate-950 p-6 text-white shadow-lg sm:p-7">
-          <div className="grid gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
-            <div className="max-w-2xl">
-              <span className="inline-flex rounded-full bg-blue-400/15 px-3 py-1 text-xs font-black uppercase tracking-widest text-blue-300">{nextRoutine ? "Suggested next session" : "Ready to train"}</span>
-              <h2 className="mt-4 text-3xl font-black tracking-tight">{nextRoutine ? nextRoutine.name : "Start your session"}</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-300">{nextRoutine ? `${nextRoutine.exercises.length} exercises · ${nextRoutine.exercises.reduce((n,e)=>n+e.defaultSets,0)} working sets · ~${Math.max(25,nextRoutine.exercises.length*9)} min` : "Build a workout as you go with previous sets, PR detection, RIR and rest timing."}</p>
-              {nextRoutine && <div className="mt-5 flex flex-wrap gap-2">{nextRoutine.exercises.slice(0,4).map(ex=><span key={ex.exerciseId} className="rounded-lg bg-white/10 px-3 py-2 text-xs font-bold text-slate-200">{ex.exerciseName}</span>)}</div>}
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">{nextRoutine && <button onClick={()=>startSavedWorkout(nextRoutine)} className="rounded-2xl bg-blue-400 px-6 py-3.5 text-sm font-black text-white transition hover:bg-blue-300 active:scale-[.98]">Start {nextRoutine.name}</button>}<button onClick={startEmptyWorkout} className="rounded-2xl border border-white/15 bg-white/10 px-6 py-3.5 text-sm font-black text-white transition hover:bg-white/15">Empty workout</button></div>
-          </div>
-          <div className="mt-7 grid grid-cols-3 gap-2 border-t border-white/10 pt-5"><div><p className="text-[10px] font-black uppercase tracking-wider text-slate-500">7D sessions</p><p className="mt-1 text-lg font-black">{lastSeven.length}</p></div><div><p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Working sets</p><p className="mt-1 text-lg font-black">{weeklySets}</p></div><div><p className="text-[10px] font-black uppercase tracking-wider text-slate-500">Volume</p><p className="mt-1 truncate text-lg font-black">{formatStoredVolume(recentVolume,displayUnits)}</p></div></div>
-        </section>
-
-        <section>
-          <div className="mb-3 flex items-end justify-between gap-3">
-            <div><p className="text-xs font-black uppercase tracking-widest text-blue-600">Your training</p><h2 className="mt-1 text-xl font-black text-slate-950">Routines</h2></div>
-          </div>
-          {savedWorkouts.length ? (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {savedWorkouts.slice(0, 6).map((workout) => {
-                const lastDone = history.find((item) => item.name === workout.name);
-                return (
-                  <button key={workout.id} onClick={() => startSavedWorkout(workout)} className="group rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md">
-                    <div className="flex items-start justify-between gap-3"><div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-lg font-black text-blue-600">M</div><span className="rounded-full border border-slate-200 px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-slate-500 group-hover:border-blue-200 group-hover:text-blue-700">Start</span></div>
-                    <h3 className="mt-4 text-lg font-black text-slate-950">{workout.name}</h3>
-                    <p className="mt-1 text-sm text-slate-500">{workout.exercises.length} exercises · ~{Math.max(25, workout.exercises.length * 9)} min</p>
-                    <p className="mt-3 truncate text-xs font-semibold text-slate-600">{workout.exercises.slice(0, 3).map((e) => e.exerciseName).join(" · ")}{workout.exercises.length > 3 ? " · +more" : ""}</p>
-                    <p className="mt-4 text-xs font-bold text-slate-500">{lastDone ? `Last trained ${new Date(lastDone.finishedAt).toLocaleDateString()}` : "Not completed yet"}</p>
-                  </button>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-6"><p className="font-black text-slate-900">No routines yet</p><p className="mt-1 text-sm text-slate-500">Create a routine once and your next session becomes one tap.</p></div>
-          )}
-        </section>
-
-        <section className="grid gap-4 lg:grid-cols-[1.4fr_.6fr]">
-          <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-center justify-between"><h2 className="text-lg font-black text-slate-950">Recent workouts</h2><span className="text-xs font-black text-slate-600">LAST 3</span></div>
-            {recent.length ? <div className="mt-3 divide-y divide-slate-100">{recent.map((item) => {
-              const sets = item.exercises.reduce((n, ex) => n + ex.sets.filter((set) => set.completed).length, 0);
-              const volume = item.exercises.reduce((n, ex) => n + ex.sets.filter((set) => set.completed).reduce((v, set) => v + set.weight * set.reps, 0), 0);
-              return <div key={item.id} className="flex items-center justify-between gap-4 py-3"><div className="min-w-0"><p className="truncate font-black text-slate-900">{item.name}</p><p className="mt-1 text-xs font-semibold text-slate-500">{new Date(item.finishedAt).toLocaleDateString()} · {formatDuration(item.durationSeconds)} · {sets} sets</p></div><div className="shrink-0 text-right"><p className="text-sm font-black text-slate-900">{formatStoredVolume(volume, displayUnits)}</p><p className="text-[10px] font-black uppercase tracking-wider text-slate-600">volume</p></div></div>;
-            })}</div> : <p className="mt-4 text-sm text-slate-500">Finish your first workout and it will appear here.</p>}
-          </div>
-          <div className="rounded-3xl border border-blue-100 bg-blue-50 p-5">
-            <p className="text-xs font-black uppercase tracking-widest text-blue-700">Training pulse</p>
-            <p className="mt-3 text-3xl font-black text-slate-950">{lastSeven.length}</p>
-            <p className="text-sm font-bold text-slate-700">sessions in 7 days</p>
-            <p className="mt-4 text-sm leading-6 text-slate-600">{lastSeven.length >= 3 ? "Strong consistency. Keep progression small and repeatable." : lastSeven.length ? "Good start. Your next completed session builds the trend." : "Your training insights will become useful after a few logged sessions."}</p>
-          </div>
-        </section>
-      </div>
-    );
+    return <WorkoutOverview routines={savedWorkouts} history={history} onStart={startSavedWorkout} onEmpty={startEmptyWorkout} onNavigate={onNavigate}/>;
   }
 
   const filteredExercises = exercises.filter(
@@ -1389,81 +1297,13 @@ function WorkoutTab({
           }}>Resume with a new timer</button>
         </div>
       )}
-      <section className="mv-active-head rounded-3xl border border-slate-200 bg-white p-6">
-        <div className="flex flex-wrap items-start justify-between gap-5">
-          <div className="flex-1">
-            <p className="text-sm font-semibold tracking-widest text-blue-400">
-              ACTIVE WORKOUT
-            </p>
-
-            <input
-              value={activeWorkout.name}
-              onChange={(event) =>
-                changeWorkoutName(
-                  event.target.value
-                )
-              }
-              className="mt-2 w-full max-w-xl bg-transparent text-4xl font-black tracking-tight outline-none"
-              placeholder="Workout name"
-            />
-
-            <p className="mt-2 text-sm text-slate-600">
-              Started{" "}
-              {formatTime(
-                activeWorkout.startedAt
-              )}
-            </p>
-
-            <div className="mt-4 inline-flex items-center gap-3 rounded-2xl border border-blue-400/20 bg-blue-400/10 px-4 py-3">
-              <span className="text-sm font-semibold text-blue-400">
-                WORKOUT TIME
-              </span>
-
-              <span className="font-mono text-xl font-bold text-blue-700">
-                {formatLiveDuration(
-                  elapsedSeconds
-                )}
-              </span>
-            </div>
-
-            <div className="mt-5 grid grid-cols-3 gap-2 sm:max-w-xl">
-              <LiveMetric label="Duration" value={formatLiveDuration(elapsedSeconds)} />
-              <LiveMetric
-                label="Volume"
-                value={`${Math.round((unit === "lb" ? 2.2046226218 : 1) * activeWorkout.exercises.reduce((total, item) => total + item.sets.filter(s => s.completed).reduce((sum, set) => sum + set.weight * set.reps, 0), 0)).toLocaleString()} ${weightLabel}`}
-              />
-              <LiveMetric
-                label="Sets"
-                value={`${activeWorkout.exercises.reduce((total, item) => total + item.sets.filter(s => s.completed).length, 0)}/${activeWorkout.exercises.reduce((total, item) => total + item.sets.length, 0)}`}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-2">
-            <button onClick={togglePause} className={`rounded-xl border px-4 py-3 text-sm font-bold ${paused ? "border-amber-300 bg-amber-50 text-amber-700" : "border-slate-300 text-slate-700"}`}>
-              {paused ? "Resume" : "Pause"}
-            </button>
-            <button onClick={() => setUnit(unit === "kg" ? "lb" : "kg")} className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-bold">
-              {unit.toUpperCase()}
-            </button>
-            <button
-              onClick={saveCurrentWorkout}
-              className="rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold transition hover:bg-slate-50"
-            >
-              Save as template
-            </button>
-
-            <button
-              onClick={discardWorkout}
-              className="rounded-xl border border-red-900 px-4 py-3 text-sm font-semibold text-red-400 transition hover:bg-red-950/30"
-            >
-              Discard
-            </button>
-          </div>
-        </div>
+      <section className="cyg-active-session">
+        <div className="cyg-active-title"><input aria-label="Workout name" value={activeWorkout.name} onChange={event=>changeWorkoutName(event.target.value)} placeholder="Workout name"/><details className="cyg-workout-options"><summary aria-label="Active workout options"><CygIcon name="dots"/></summary><div><button onClick={togglePause}>{paused?'Resume timer':'Pause timer'}</button><button onClick={()=>setUnit(unit==='kg'?'lb':'kg')}>Use {unit==='kg'?'lb':'kg'}</button><button onClick={saveCurrentWorkout}>Save as routine</button><button onClick={discardWorkout}>Discard workout</button></div></details></div>
+        <div className="cyg-elapsed-time"><strong>{formatLiveDuration(elapsedSeconds)}</strong><span>{paused?'Paused':'Elapsed'}</span></div>
+        <div className="cyg-live-stats"><span><CygIcon name="workout" size={16}/>{activeWorkout.exercises.length} exercises</span><span>{activeWorkout.exercises.reduce((n,e)=>n+e.sets.filter(s=>s.completed).length,0)} / {activeWorkout.exercises.reduce((n,e)=>n+e.sets.length,0)} sets</span><button onClick={togglePause}>{paused?'Resume':'Pause'}</button></div>
       </section>
 
-      <section className="mv-rest-bar" aria-label="Rest timer"><span className="mv-timer-icon">◴</span><div><span>Rest timer</span><strong>{Math.floor(restSecondsLeft / 60)}:{String(restSecondsLeft % 60).padStart(2, "0")}</strong></div><progress max={Math.max(restDuration,restSecondsLeft,1)} value={restSecondsLeft}/><button onClick={() => setRestSecondsLeft(v=>v+30)}>+30s</button>{restSecondsLeft>0&&<button onClick={()=>setRestSecondsLeft(0)}>Skip</button>}</section>
+      <section className="mv-rest-bar" aria-label="Rest timer"><span className="mv-timer-icon"><CygIcon name="clock" size={27}/></span><div><span>Rest timer</span><strong>{Math.floor(restSecondsLeft / 60)}:{String(restSecondsLeft % 60).padStart(2, "0")}</strong></div><progress max={Math.max(restDuration,restSecondsLeft,1)} value={restSecondsLeft}/><button onClick={() => setRestSecondsLeft(v=>v+30)}>+30s</button>{restSecondsLeft>0&&<button onClick={()=>setRestSecondsLeft(0)}>Skip</button>}</section>
       <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="space-y-5">
         {activeWorkout.exercises.map(
@@ -1924,7 +1764,7 @@ function WorkoutTab({
       </button>
 
       {showExercisePicker && (
-        <section className="mt-5 rounded-3xl border border-blue-400/30 bg-white p-6">
+        <section className="cyg-exercise-picker mt-5 rounded-3xl border border-blue-400/30 bg-white p-6">
           <div className="flex items-center justify-between gap-4">
             <h2 className="text-2xl font-semibold">
               Add exercise
@@ -2058,30 +1898,18 @@ function WorkoutTab({
         </div>
       )}
 
-      {showFinishReview && (
-        <div className="fixed inset-0 z-[95] flex items-end justify-center bg-slate-950/50 p-3 sm:items-center">
-          <div className="w-full max-w-2xl rounded-3xl bg-white p-6 shadow-2xl">
-            <div className="flex items-start justify-between gap-4">
-              <div><p className="text-xs font-bold uppercase tracking-widest text-blue-600">Workout review</p><h2 className="mt-1 text-3xl font-black">{activeWorkout.name}</h2></div>
-              <button onClick={()=>setShowFinishReview(false)} className="h-10 w-10 rounded-xl bg-slate-100 font-black">×</button>
-            </div>
-            <div className="mt-6 grid grid-cols-3 gap-3">
-              <SummaryMetric label="Duration" value={formatLiveDuration(elapsedSeconds)} />
-              <SummaryMetric label="Volume" value={formatStoredVolume(activeWorkout.exercises.reduce((total, item) => total + item.sets.filter(s=>s.completed).reduce((sum,set)=>sum+set.weight*set.reps,0),0), displayUnits)} />
-              <SummaryMetric label="Sets" value={activeWorkout.exercises.reduce((total,item)=>total+item.sets.filter(s=>s.completed).length,0)} />
-            </div>
-            <div className="mt-6"><p className="text-sm font-black">How did it feel?</p><div className="mt-3 grid grid-cols-5 gap-2">{[1,2,3,4,5].map(n=><button key={n} onClick={()=>setSessionFeeling(n)} className={`rounded-xl py-3 font-black ${sessionFeeling===n?"bg-blue-500 text-white":"bg-slate-100 text-slate-500"}`}>{n}</button>)}</div></div>
-            <div className="mt-6 rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-widest text-slate-600">CYG summary</p><p className="mt-2 text-sm leading-6 text-slate-600">{activeWorkout.exercises.reduce((t,e)=>t+e.sets.filter(s=>s.completed).length,0)} completed sets across {activeWorkout.exercises.length} exercises.{activeWorkout.exercises.some(e=>e.sets.some(set=>set.completed && isPersonalRecord(history,e.exerciseId,set))) ? " New personal record detected." : ""}</p></div>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              <SummaryMetric label="PRs" value={activeWorkout.exercises.reduce((total,e)=>total+e.sets.filter(set=>set.completed && isPersonalRecord(history,e.exerciseId,set)).length,0)} />
-              <SummaryMetric label="Exercises" value={activeWorkout.exercises.length} />
-            </div>
-            <p className="mt-4 font-bold text-blue-700">≈ {estimateWorkoutCalories(activeWorkout.startedAt, new Date(), activeWorkout.exercises)} kcal burned · estimate</p>
-            <div className="mt-4 flex gap-3"><button onClick={() => setShowFinishReview(false)} className="flex-1 rounded-xl border border-slate-200 p-3 font-bold">Edit workout</button><button onClick={() => { setShowFinishReview(false); discardWorkout(); }} className="flex-1 rounded-xl border border-rose-200 p-3 font-bold text-rose-600">Discard</button></div>
-            <button onClick={()=>{ localStorage.setItem(`bodypilot-workout-feeling-${activeWorkout.id}`,String(sessionFeeling)); setShowFinishReview(false); finishWorkout(); }} className="mt-6 w-full rounded-2xl bg-blue-500 py-4 text-lg font-black text-white">Save Workout</button>
-          </div>
-        </div>
-      )}
+      {showFinishReview && <div className="cyg-finish-overlay" role="dialog" aria-modal="true" aria-labelledby="cyg-finish-title">
+        <section className="cyg-finish-panel"><header><button aria-label="Return to workout" onClick={()=>setShowFinishReview(false)}><CygIcon name="close"/></button><span>Workout review</span></header><div className="cyg-success-ring"><CygIcon name="check" size={50}/></div><h2 id="cyg-finish-title">Great work!</h2><p>{activeWorkout.name}</p>
+          <div className="cyg-finish-stats"><SummaryMetric label="Duration" value={formatLiveDuration(elapsedSeconds)}/><SummaryMetric label="Total Sets" value={activeWorkout.exercises.reduce((n,e)=>n+e.sets.filter(s=>s.completed).length,0)}/><SummaryMetric label="Total Volume" value={formatStoredVolume(activeWorkout.exercises.reduce((n,e)=>n+e.sets.filter(s=>s.completed).reduce((v,s)=>v+s.weight*s.reps,0),0),displayUnits)}/></div>
+          <div className="cyg-calorie-summary"><CygIcon name="flame" size={27}/><div><span>Estimated Calories</span><strong>~{estimateWorkoutCalories(activeWorkout.startedAt,new Date(),activeWorkout.exercises)} kcal</strong></div><small>Estimate</small></div>
+          <h3>Workout Breakdown</h3><div className="cyg-finish-breakdown">{activeWorkout.exercises.map(e=><div key={e.id}><strong>{e.exerciseName}</strong><span>{e.cardio?`${e.cardio.durationMinutes} min`: `${e.sets.filter(s=>s.completed).length} sets`}</span><small>{e.cardio?`${e.cardio.distanceKm.toFixed(1)} km`:formatStoredVolume(e.sets.filter(s=>s.completed).reduce((v,s)=>v+s.weight*s.reps,0),displayUnits)}</small></div>)}</div>
+          <button className="cyg-finish-option" onClick={()=>setShowFinishReview(false)}><CygIcon name="edit" size={18}/>Edit Workout<CygIcon name="chevron" size={16}/></button>
+          <button className="cyg-finish-option" onClick={()=>{setShowFinishReview(false);setShowExercisePicker(true)}}><CygIcon name="plus" size={18}/>Add Exercise or Set<CygIcon name="chevron" size={16}/></button>
+          <details className="cyg-finish-feeling"><summary>How did it feel?</summary><div>{[1,2,3,4,5].map(n=><button key={n} className={sessionFeeling===n?'is-active':''} onClick={()=>setSessionFeeling(n)}>{n}</button>)}</div></details>
+          <button className="cyg-discard-finish" onClick={()=>{setShowFinishReview(false);discardWorkout()}}><CygIcon name="delete" size={18}/>Discard Workout</button>
+          <button className="cyg-primary" onClick={()=>{localStorage.setItem(`bodypilot-workout-feeling-${activeWorkout.id}`,String(sessionFeeling));setShowFinishReview(false);finishWorkout()}}><CygIcon name="check" size={18}/>Save Workout</button>
+        </section>
+      </div>}
 
     </div>
   );
@@ -2457,6 +2285,8 @@ function TabButton({
 
   return (
     <button
+      role="tab"
+      aria-selected={active}
       onClick={() => setActiveTab(tab)}
       className={`min-w-0 rounded-xl px-2 py-3 text-center text-[10px] font-black uppercase tracking-tight transition sm:px-4 sm:text-sm sm:normal-case ${
         active
@@ -2679,6 +2509,13 @@ function formatDuration(seconds: number) {
   return `${Math.max(minutes, 1)}min`;
 }
 
+function estimateRoutineMinutes(workout: SavedWorkout) {
+  const totalSets = workout.exercises.reduce((sum, exercise) => sum + exercise.defaultSets, 0);
+  // Approx. 45 s per set, 105 s recovery per gap and 2 min between exercises.
+  const recoveryGaps = Math.max(0, totalSets - workout.exercises.length);
+  return Math.max(15, Math.round((totalSets * 45 + recoveryGaps * 105 + workout.exercises.length * 120) / 60));
+}
+
 
 function LiveMetric({label,value}:{label:string;value:string|number}) {
   return <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[10px] font-bold uppercase tracking-wider text-slate-600">{label}</p><p className="mt-1 font-mono text-sm font-black text-slate-900">{value}</p></div>;
@@ -2832,4 +2669,3 @@ function estimateWorkoutCalories(startedAt: string, finishedAt: Date, exercises:
   const strengthMinutes = exercises.some(exercise => !exercise.cardio) ? Math.max(0, minutes - cardioMinutes) : 0;
   return Math.round(4.5 * 3.5 * bodyWeight / 200 * strengthMinutes + cardio.reduce((sum, exercise) => sum + cardioCalories(exercise, bodyWeight), 0));
 }
-

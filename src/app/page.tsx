@@ -1,6 +1,8 @@
 "use client";
 
-import { mergeDatedDiaries, diaryForDate } from "@/lib/nutrition/dailyDiary";
+import { orderTrainingDays, strengthDaySlots, strengthWeek } from "@/lib/training/schedule";
+import { CygBrand, CygIcon, EnergyRing, MacroTrack, PageHeader, MiniTrend } from "@/components/ui/CygUI";
+import { mergeDatedDiaries, diaryForDate, clearRepeatedDiaryCopies } from "@/lib/nutrition/dailyDiary";
 import SyncStatus from "@/components/system/SyncStatus";
 import cygLogo from "./cyg-logo.jpeg";
 import { useEffect, useMemo, useState, useRef } from "react";
@@ -15,8 +17,8 @@ import FriendsPanel from "@/components/social/FriendsPanel";
 import CoachPage from "@/components/coach/CoachPage";
 import Looksmaxing from "@/components/looksmaxing/Looksmaxing";
 import PremiumPaywall from "@/components/premium/PremiumPaywall";
-import { applyMucipesAppearance, cmToDisplay, displayToCm, displayToKg, formatEnergy, formatLength, formatWeight, kgToDisplay, lengthUnitLabel, weightUnitLabel } from "@/lib/mucipes/display";
-import { loadCloudData, saveCloudData } from "@/lib/supabase/storage";
+import { applyMucipesAppearance, cmToDisplay, displayToCm, displayToKg, energyUnitLabel, formatEnergy, formatLength, formatWeight, kgToDisplay, lengthUnitLabel, weightUnitLabel } from "@/lib/mucipes/display";
+import { loadCloudData, restoreAccountDataLocally, saveCloudData } from "@/lib/supabase/storage";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type Page =
@@ -137,6 +139,7 @@ type TrainingExercise = {
   exerciseId: string;
   exerciseName: string;
   sets: TrainingSet[];
+  cardio?: { durationMinutes: number; distanceKm?: number };
 };
 
 type TrainingHistoryEntry = {
@@ -177,6 +180,13 @@ function formatLiveDuration(ms: number) {
   const minutes = Math.floor((safe % 3600000) / 60000);
   const seconds = Math.floor((safe % 60000) / 1000);
   return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function displayTrainingDuration(workout: TrainingHistoryEntry) {
+  if (!workout.id.startsWith("lyfta-")) return Math.round(workout.durationSeconds / 60);
+  const count = workout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter(set => set.completed && set.reps > 0).length, 0);
+  const cardio = workout.exercises.reduce((sum, exercise) => sum + (exercise.cardio?.durationMinutes || 0), 0);
+  return Math.round(Math.max(8, cardio + 3 + count * 2.5 + workout.exercises.length * 1.5));
 }
 
 function roundEstimated1RM(kg: number, units: "metric" | "imperial") {
@@ -281,6 +291,9 @@ export default function Home() {
   const [activePage, setActivePage] =
     useState<Page>("dashboard");
 
+  useEffect(()=>{const open=()=>setActivePage("profile");window.addEventListener("cyg-open-more",open);return()=>window.removeEventListener("cyg-open-more",open)},[]);
+  useEffect(()=>{window.scrollTo({top:0})},[activePage]);
+
   const [diaryDate, setDiaryDate] = useState(getTodayDateInput);
   const diaryDateRef = useRef(diaryDate);
   const [foods, setFoods] =
@@ -315,8 +328,13 @@ export default function Home() {
   useEffect(() => {
     let client: ReturnType<typeof getSupabaseBrowserClient>;
     try { client = getSupabaseBrowserClient(); } catch { return; }
-    const { data } = client.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
+    const { data } = client.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_IN" && session?.user.id) {
+        setCloudReady(false);
+        void restoreAccountDataLocally(session.user.id).finally(() => {
+          setAuthVersion(version => version + 1);
+        });
+      } else if (event === "SIGNED_OUT") {
         setCloudReady(false);
         setAuthVersion(version => version + 1);
       }
@@ -391,30 +409,39 @@ export default function Home() {
       }
 
       const today = getTodayDateInput();
-      const savedDate =
-        normalizeDateKey(savedFoodDiaryDate) || today;
+      const savedDate = normalizeDateKey(savedFoodDiaryDate);
       const parsedFoods = parseFoodList(savedFoods);
       const parsedDiaryHistory =
         parseFoodDiaryHistory(savedFoodDiaryHistory);
+      const legacyDate = savedDate && savedDate <= today
+        ? savedDate
+        : previousLocalDateKey(today);
       const migratedDiaryHistory =
         migrateLegacyFoodsIntoDiary(
           parsedDiaryHistory,
           parsedFoods,
-          savedDate
+          legacyDate
         );
+      const repairedDiary = clearRepeatedDiaryCopies(migratedDiaryHistory);
+      const cleanDiaryHistory = repairedDiary.history;
 
-      setFoodDiaryHistory(migratedDiaryHistory);
+      setFoodDiaryHistory(cleanDiaryHistory);
 
-      if (savedDate === today && parsedFoods.length > 0) {
+      const savedTodayDiary = cleanDiaryHistory.find(day => day.date === today);
+      if (savedTodayDiary) {
+        // A dated record is authoritative even when it is intentionally empty.
+        // That prevents an older local food list from reappearing after deletion.
+        setFoods(savedTodayDiary.foods);
+      } else if (savedDate === today) {
         setFoods(parsedFoods);
       } else {
-        setFoods(diaryForDate(migratedDiaryHistory, today));
+        setFoods(diaryForDate(cleanDiaryHistory, today));
       }
 
       localStorage.setItem("bodypilot-food-diary-date", today);
       localStorage.setItem(
         "bodypilot-food-diary-history",
-        JSON.stringify(migratedDiaryHistory)
+        JSON.stringify(cleanDiaryHistory)
       );
 
       if (savedMeals) {
@@ -498,7 +525,14 @@ export default function Home() {
           JSON.parse(savedNutritionHistory);
 
         if (Array.isArray(parsedNutritionHistory)) {
-          setNutritionHistory(parsedNutritionHistory);
+          const cleared = new Set(repairedDiary.clearedDates);
+          const cleanSnapshots = parsedNutritionHistory.map(day => cleared.has(day.date)
+            ? { ...day, calories: 0, protein: 0, carbs: 0, fat: 0 }
+            : day);
+          setNutritionHistory(cleanSnapshots);
+          if (repairedDiary.clearedDates.length) {
+            localStorage.setItem("bodypilot-nutrition-history", JSON.stringify(cleanSnapshots));
+          }
         }
       }
     } catch (error) {
@@ -549,6 +583,7 @@ export default function Home() {
       if (cancelled) return;
 
       // Legacy cloud `foods` has no date and must never overwrite today's diary.
+      let correctedDiaryDates: string[] = [];
       if (Array.isArray(cloudFoodDiaryHistory)) {
         const localDiary = parseFoodDiaryHistory(
           localStorage.getItem("bodypilot-food-diary-history")
@@ -558,10 +593,16 @@ export default function Home() {
           localDiary,
           diaryBeforeHydration.map(day=>day.date)
         );
-        setFoodDiaryHistory(merged);
+        const repaired = clearRepeatedDiaryCopies(merged);
+        correctedDiaryDates = repaired.clearedDates;
+        setFoodDiaryHistory(repaired.history);
+        if (repaired.clearedDates.length) {
+          localStorage.setItem("bodypilot-food-diary-history", JSON.stringify(repaired.history));
+          void saveCloudData("food_diary_history", repaired.history);
+        }
         const today = getTodayDateInput();
         setDiaryDate(today); diaryDateRef.current = today;
-        setFoods(diaryForDate(merged, today));
+        setFoods(diaryForDate(repaired.history, today));
       } else if (Array.isArray(cloudFoods)) {
         const today = getTodayDateInput();
         setDiaryDate(today); diaryDateRef.current = today;
@@ -571,7 +612,13 @@ export default function Home() {
       if (cloudGoals) setGoals(cloudGoals);
       if (Array.isArray(cloudWeight)) setWeightEntries(cloudWeight);
       if (cloudProfile) setBodyProfile({ ...defaultProfile, ...cloudProfile });
-      if (Array.isArray(cloudNutritionHistory)) setNutritionHistory(local => Array.from(new Map([...cloudNutritionHistory,...local].map(day=>[day.date,day])).values()).sort((a,b)=>a.date.localeCompare(b.date)));
+      if (Array.isArray(cloudNutritionHistory)) setNutritionHistory(local => {
+        const merged = Array.from(new Map([...cloudNutritionHistory,...local].map(day=>[day.date,day])).values()).sort((a,b)=>a.date.localeCompare(b.date));
+        const cleared = new Set(correctedDiaryDates);
+        const repaired = merged.map(day=>cleared.has(day.date)?{...day,calories:0,protein:0,carbs:0,fat:0}:day);
+        if (cleared.size) { localStorage.setItem("bodypilot-nutrition-history",JSON.stringify(repaired)); void saveCloudData("nutrition_history",repaired); }
+        return repaired;
+      });
 
       if (cloudAppMode === "guided" || cloudAppMode === "self-managed") setAppMode(cloudAppMode);
       if (cloudOnboarding === true) setShowOnboarding(false);
@@ -626,7 +673,7 @@ export default function Home() {
   ]);
 
   useEffect(() => {
-    if (!loaded || !cloudReady) {
+    if (!loaded) {
       return;
     }
 
@@ -823,7 +870,26 @@ export default function Home() {
       if (today === diaryDateRef.current) return;
       diaryDateRef.current = today;
       let entries: FoodDiaryDay[] = [];
-      try { entries = JSON.parse(localStorage.getItem("bodypilot-food-diary-history") || "[]"); } catch {}
+      try {
+        entries = parseFoodDiaryHistory(localStorage.getItem("bodypilot-food-diary-history"));
+        const repaired = clearRepeatedDiaryCopies(entries);
+        entries = repaired.history;
+        localStorage.setItem("bodypilot-food-diary-history", JSON.stringify(entries));
+        if (repaired.clearedDates.length) {
+          const cleared = new Set(repaired.clearedDates);
+          const snapshots = JSON.parse(localStorage.getItem("bodypilot-nutrition-history") || "[]");
+          if (Array.isArray(snapshots)) {
+            const cleanSnapshots = snapshots.map(day => cleared.has(day.date)
+              ? { ...day, calories: 0, protein: 0, carbs: 0, fat: 0 }
+              : day);
+            localStorage.setItem("bodypilot-nutrition-history", JSON.stringify(cleanSnapshots));
+            setNutritionHistory(cleanSnapshots);
+            if (cloudReady) void saveCloudData("nutrition_history", cleanSnapshots);
+          }
+          if (cloudReady) void saveCloudData("food_diary_history", entries);
+        }
+      } catch {}
+      setFoodDiaryHistory(entries);
       setDiaryDate(today);
       setFoods(diaryForDate(entries, today));
     };
@@ -832,7 +898,7 @@ export default function Home() {
     document.addEventListener("visibilitychange", rollover);
     rollover();
     return () => { clearInterval(timer); window.removeEventListener("focus", rollover); document.removeEventListener("visibilitychange", rollover); };
-  }, [loaded]);
+  }, [loaded, cloudReady]);
 
   function addFood(food: Food) {
     setFoods((current) => [
@@ -997,7 +1063,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f8f9] text-slate-950">
+    <main className="cyg-app-shell" data-page={activePage}>
       {loaded && showOnboarding && (
         <OnboardingModal
           profile={bodyProfile}
@@ -1016,14 +1082,13 @@ export default function Home() {
           }}
         />
       )}
-      <nav className="sticky top-0 z-50 hidden border-b border-slate-200 bg-white/95 backdrop-blur md:block">
+      <nav className="cyg-top-nav sticky top-0 z-50 hidden border-b border-slate-200 bg-white/95 backdrop-blur md:block">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-4">
           <button
             onClick={() => setActivePage("dashboard")}
             className="flex items-center gap-3 text-xl font-black tracking-tight"
           >
-            <img src={cygLogo.src} alt="CYG" className="h-11 w-11 rounded-xl object-cover" />
-            <span>CYG<small className="block text-[10px] font-semibold tracking-widest text-slate-500">Choose Your Goal</small></span>
+            <CygBrand /><small className="cyg-brand-caption">CHOOSE YOUR GOAL</small>
           </button>
 
           <div className="flex items-center gap-1 rounded-2xl bg-slate-100 p-1">
@@ -1034,13 +1099,15 @@ export default function Home() {
               <AppNavButton label="Plan" page="plan" activePage={activePage} setActivePage={setActivePage} />
             )}
             {pinLooks && <AppNavButton label="Looksmaxing" page="looksmaxing" activePage={activePage} setActivePage={setActivePage} />}
+            <AppNavButton label="Progress" page="progress" activePage={activePage} setActivePage={setActivePage} />
             <AppNavButton label="More" page="profile" activePage={activePage} setActivePage={setActivePage} />
           </div>
         </div>
       </nav>
 
+      <div className="cyg-mobile-header"><button aria-label="CYG Home" onClick={()=>setActivePage("dashboard")}><CygBrand /></button><div><button className="cyg-icon-button" aria-label="Notifications" onClick={()=>{localStorage.setItem("mucipes-more-detail-intent","notifications");setActivePage("profile")}}><CygIcon name="bell"/></button><button className="cyg-avatar" aria-label="Account" onClick={()=>{localStorage.setItem("mucipes-more-detail-intent","account");setActivePage("profile")}}><CygIcon name="user" size={18}/></button></div></div>
       <SyncStatus />
-      <div className="mx-auto max-w-6xl px-4 py-6 pb-28 sm:px-6 sm:py-10 md:pb-10">
+      <div className="cyg-page-shell mx-auto max-w-6xl px-4 py-6 pb-28 sm:px-6 sm:py-10 md:pb-10">
         {activePage ===
           "dashboard" && (
           <Dashboard
@@ -1196,18 +1263,14 @@ export default function Home() {
         )}
       </div>
 
-      <nav className="cyg-mobile-nav fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur md:hidden">
-        <div className="mx-auto flex max-w-lg items-center justify-around">
-          <MobileNavButton icon="⌂" label="Home" page="dashboard" activePage={activePage} setActivePage={setActivePage} />
-          <MobileNavButton icon="◉" label="Workout" page="training" activePage={activePage} setActivePage={setActivePage} />
-          <MobileNavButton icon="●" label="Nutrition" page="nutrition" activePage={activePage} setActivePage={setActivePage} />
-          {appMode === "guided" && (
-            <MobileNavButton icon="✦" label="Plan" page="plan" activePage={activePage} setActivePage={setActivePage} />
-          )}
-          {pinLooks && <MobileNavButton icon="✧" label="Looksmaxing" page="looksmaxing" activePage={activePage} setActivePage={setActivePage} />}
-          <MobileNavButton icon="•••" label="More" page="profile" activePage={activePage} setActivePage={setActivePage} />
-        </div>
-      </nav>
+      <nav className="cyg-mobile-nav" aria-label="Main navigation"><div>
+        <MobileNavButton icon="home" label="Home" page="dashboard" activePage={activePage} setActivePage={setActivePage}/>
+        <MobileNavButton icon="nutrition" label="Nutrition" page="nutrition" activePage={activePage} setActivePage={setActivePage}/>
+        <MobileNavButton icon="workout" label="Workout" page="training" activePage={activePage} setActivePage={setActivePage}/>
+        <MobileNavButton icon="progress" label="Progress" page="progress" activePage={activePage} setActivePage={setActivePage}/>
+        {pinLooks&&<MobileNavButton icon="target" label="Looks" page="looksmaxing" activePage={activePage} setActivePage={setActivePage}/>}
+        <MobileNavButton icon="more" label="More" page="profile" activePage={activePage} setActivePage={setActivePage}/>
+      </div></nav>
     </main>
   );
 }
@@ -1646,7 +1709,7 @@ function MorePanelContent({
               <p className="font-black text-slate-900">{workout.name}</p>
               <p className="text-xs text-slate-600">{new Date(workout.finishedAt).toLocaleDateString()}</p>
             </div>
-            <p className="mt-1 text-sm text-slate-500">{Math.round(workout.durationSeconds/60)} min · {workout.exercises.length} exercises</p>
+            <p className="mt-1 text-sm text-slate-500">{workout.id.startsWith("lyfta-") ? "~" : ""}{displayTrainingDuration(workout)} min · {workout.exercises.length} exercises</p>
           </div>
         ))}
         {recentWorkouts.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">No workouts logged yet.</p>}
@@ -1823,7 +1886,7 @@ function MoreFullPage({
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <h3 className="text-lg font-black">{selectedDay || "Select a day"}</h3>
           <div className="mt-4 space-y-3">
-            {selectedWorkouts.map(w=><div key={w.id} className="rounded-2xl bg-slate-50 p-4"><p className="font-black">{w.name}</p><p className="mt-1 text-sm text-slate-500">{Math.round(w.durationSeconds/60)} min · {w.exercises.length} exercises</p></div>)}
+            {selectedWorkouts.map(w=><div key={w.id} className="rounded-2xl bg-slate-50 p-4"><p className="font-black">{w.name}</p><p className="mt-1 text-sm text-slate-500">{w.id.startsWith("lyfta-") ? "~" : ""}{displayTrainingDuration(w)} min · {w.exercises.length} exercises</p></div>)}
             {selectedDay && selectedWorkouts.length===0 && <p className="text-sm text-slate-500">No workout logged on this day.</p>}
           </div>
         </section>
@@ -1832,17 +1895,26 @@ function MoreFullPage({
   }
 
   if (page === "achievements") {
-    const totalSets=trainingHistory.reduce((sum,w)=>sum+w.exercises.reduce((a,e)=>a+e.sets.filter(x=>x.completed).length,0),0);
-    const totalVolume=Math.round(trainingHistory.reduce((sum,w)=>sum+w.exercises.reduce((a,e)=>a+e.sets.reduce((z,x)=>z+(x.weight||0)*(x.reps||0),0),0),0));
-    const achievements=[
-      ["First Flight","Complete your first workout",trainingHistory.length>=1],
-      ["Consistency","Complete 10 workouts",trainingHistory.length>=10],
-      ["Century","Complete 100 working sets",totalSets>=100],
-      ["Volume Builder","Lift 100,000 kg total volume",totalVolume>=100000],
-      ["Nutrition Logger","Save 7 nutrition days",nutritionHistory.length>=7],
-      ["Committed","Complete 50 workouts",trainingHistory.length>=50],
+    const completedSets = trainingHistory.reduce((sum, workout) => sum + workout.exercises.reduce((total, exercise) => total + exercise.sets.filter(set => set.completed).length, 0), 0);
+    const totalVolume = Math.round(trainingHistory.reduce((sum, workout) => sum + workout.exercises.reduce((exSum, exercise) => exSum + exercise.sets.filter(set => set.completed).reduce((setSum, set) => setSum + Math.max(0, set.weight) * Math.max(0, set.reps), 0), 0), 0));
+    const activeDays = new Set(trainingHistory.map(workout => new Date(workout.finishedAt).toISOString().slice(0, 10))).size;
+    const cardioSessions = trainingHistory.reduce((sum, workout) => sum + workout.exercises.filter(exercise => Boolean(exercise.cardio)).length, 0);
+    const next = (value: number, milestones: number[]) => milestones.find(target => value < target) ?? milestones[milestones.length - 1];
+    const achievements = [
+      { icon: "workout", title: "Training sessions", value: trainingHistory.length, target: next(trainingHistory.length, [1, 5, 10, 25, 50, 100]), unit: "workouts", detail: "Build a consistent training habit." },
+      { icon: "target", title: "Working sets", value: completedSets, target: next(completedSets, [50, 100, 250, 500, 1000]), unit: "sets", detail: "Every completed set adds to your total." },
+      { icon: "progress", title: "Volume builder", value: totalVolume, target: next(totalVolume, [10000, 25000, 50000, 100000, 250000]), unit: "kg lifted", detail: "Total logged weight × repetitions." },
+      { icon: "calendar", title: "Active days", value: activeDays, target: next(activeDays, [7, 14, 30, 60, 100]), unit: "days", detail: "Distinct days with a completed workout." },
+      { icon: "clock", title: "Cardio starter", value: cardioSessions, target: next(cardioSessions, [1, 5, 10, 25, 50]), unit: "cardio sessions", detail: "Cardio entries saved in your workout history." },
+      { icon: "nutrition", title: "Nutrition logging", value: nutritionHistory.length, target: next(nutritionHistory.length, [7, 14, 30, 60, 100]), unit: "days logged", detail: "Days with saved nutrition data." },
+      {icon:"book",title:"Exercise explorer",value:new Set(trainingHistory.flatMap(w=>w.exercises.map(e=>e.exerciseName.toLowerCase()))).size,target:next(new Set(trainingHistory.flatMap(w=>w.exercises.map(e=>e.exerciseName.toLowerCase()))).size,[5,10,20,40,75]),unit:"different exercises",detail:"Build experience across your exercise library."},
+      {icon:"flame",title:"Rep by rep",value:trainingHistory.reduce((n,w)=>n+w.exercises.reduce((m,e)=>m+e.sets.filter(s=>s.completed).reduce((a,s)=>a+s.reps,0),0),0),target:next(trainingHistory.reduce((n,w)=>n+w.exercises.reduce((m,e)=>m+e.sets.filter(s=>s.completed).reduce((a,s)=>a+s.reps,0),0),0),[100,500,1000,5000,10000]),unit:"repetitions",detail:"Completed repetitions across all saved sessions."},
     ];
-    return <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{achievements.map(([title,detail,done]:any)=><div key={title} className={`rounded-3xl border p-5 ${done?"border-blue-200 bg-blue-50":"border-slate-200 bg-white"}`}><div className={`grid h-12 w-12 place-items-center rounded-2xl text-xl font-black ${done?"bg-blue-500 text-white":"bg-slate-100 text-slate-600"}`}>{done?"✓":"○"}</div><p className="mt-4 text-lg font-black">{title}</p><p className="mt-1 text-sm text-slate-500">{detail}</p></div>)}</div>;
+    const currentLevel = trainingHistory.length >= 100 ? "Elite" : trainingHistory.length >= 50 ? "Advanced" : trainingHistory.length >= 10 ? "Building" : "Getting started";
+    return <div className="cyg-achievements-page">
+      <section className="cyg-achievement-hero"><div><p className="cyg-achievement-eyebrow">YOUR CYG MILESTONES</p><h2>{currentLevel}</h2><p>Every session, set and logged day moves you forward.</p></div><div className="cyg-achievement-score"><strong>{trainingHistory.length}</strong><span>workouts</span></div></section>
+      <div className="cyg-achievement-grid">{achievements.map(item => { const progress = Math.min(100, item.value / Math.max(1, item.target) * 100); return <article key={item.title} className="cyg-achievement-card"><div className="cyg-achievement-card-top"><span className="cyg-achievement-icon"><CygIcon name={item.icon} size={24}/></span><span className={item.value >= item.target ? "cyg-achievement-earned" : "cyg-achievement-level"}>{item.value >= item.target ? "MILESTONE REACHED" : "IN PROGRESS"}</span></div><h3>{item.title}</h3><p>{item.detail}</p><div className="cyg-achievement-progress"><span style={{width:`${progress}%`}} /></div><div className="cyg-achievement-count"><strong>{item.value.toLocaleString()}</strong><span> / {item.target.toLocaleString()} {item.unit}</span></div><small>{item.value >= item.target ? "Next milestone unlocked" : `${Math.max(0, item.target - item.value).toLocaleString()} to go`}</small></article>; })}</div>
+    </div>;
   }
 
   if (page === "notifications") {
@@ -1951,6 +2023,7 @@ function ProfilePage({
 
   useEffect(() => {
     const intent = localStorage.getItem("mucipes-more-detail-intent");
+    if (intent === "account" || intent === "notifications" || intent === "achievements") { setMorePage(intent); localStorage.removeItem("mucipes-more-detail-intent"); }
     if (intent === "fasting" || intent === "profile" || intent === "goals" || intent === "display" || intent === "data") {
       setDetailPage(intent);
       localStorage.removeItem("mucipes-more-detail-intent");
@@ -2091,30 +2164,30 @@ function ProfilePage({
   };
 
   const moreItems: Array<{ title: string; detail: string; icon: string; action: () => void }> = [
-    { title: "Account", detail: "Login, security and cloud sync", icon: "◎", action: () => setMorePage("account") },
-    { title: "Profile", detail: "Personal information and physical stats", icon: "○", action: () => openDetail("profile") },
-    { title: "Goals & Targets", detail: "Weight, nutrition and training goals", icon: "◉", action: () => openDetail("goals") },
-    { title: "Display & Appearance", detail: "Units and app preferences", icon: "▣", action: () => openDetail("display") },
-    { title: "Fasting", detail: "Timer, schedule, history and streaks", icon: "◷", action: () => openDetail("fasting") },
-    { title: "Looksmaxing", detail: planTier === "premium" ? "Premium appearance routine, scans and progress" : "Preview the Premium appearance module", icon: "✦", action: () => setActivePage("looksmaxing") },
-    { title: "Show Looksmaxing in navigation", detail: showLooksShortcut ? "On · shown beside Workout and Nutrition" : "Off · available from More", icon: showLooksShortcut ? "✓" : "＋", action: () => { const next = !showLooksShortcut; setShowLooksShortcut(next); localStorage.setItem("cyg-pin-looksmaxing", String(next)); window.dispatchEvent(new Event("cyg-navigation")); } },
-    { title: "Friends", detail: "Add friends and control what they can see", icon: "♧", action: () => setMorePage("friends") },
-    { title: "CYG Coach", detail: "Insights across training, nutrition and progress", icon: "✦", action: () => setMorePage("coach") },
-    { title: "Progress", detail: "Weight, strength, records and measurements", icon: "↗", action: () => setActivePage("progress") },
-    { title: "Calendar", detail: "Workout and nutrition history", icon: "□", action: () => setMorePage("calendar") },
-    { title: "Achievements", detail: "PRs, streaks and milestones", icon: "★", action: () => setMorePage("achievements") },
-    { title: "Notifications", detail: "Workout, nutrition and weigh-in reminders", icon: "◌", action: () => setMorePage("notifications") },
-    { title: "Connect Apps & Devices", detail: "Apple Health, Strava, Garmin and more", icon: "↻", action: () => setMorePage("devices") },
-    { title: "Data & Backup", detail: "Local data, export and cloud status", icon: "⇅", action: () => openDetail("data") },
-    { title: "Support", detail: "Help center and feedback", icon: "?", action: () => setMorePage("support") },
-    { title: "About", detail: "Version, privacy and CYG information", icon: "i", action: () => setMorePage("about") },
+    { title: "Account", detail: "Login, security and cloud sync", icon: "user", action: () => setMorePage("account") },
+    { title: "Profile", detail: "Personal information and physical stats", icon: "user", action: () => openDetail("profile") },
+    { title: "Goals & Targets", detail: "Weight, nutrition and training goals", icon: "target", action: () => openDetail("goals") },
+    { title: "Display & Appearance", detail: "Units and app preferences", icon: "settings", action: () => openDetail("display") },
+    { title: "Fasting", detail: "Timer, schedule, history and streaks", icon: "clock", action: () => openDetail("fasting") },
+    { title: "Looksmaxing", detail: planTier === "premium" ? "Premium appearance routine, scans and progress" : "Preview the Premium appearance module", icon: "spark", action: () => setActivePage("looksmaxing") },
+    { title: "Show Looksmaxing in navigation", detail: showLooksShortcut ? "On · shown beside Workout and Nutrition" : "Off · available from More", icon: showLooksShortcut ? "check" : "plus", action: () => { const next = !showLooksShortcut; setShowLooksShortcut(next); localStorage.setItem("cyg-pin-looksmaxing", String(next)); window.dispatchEvent(new Event("cyg-navigation")); } },
+    { title: "Friends", detail: "Add friends and control what they can see", icon: "friends", action: () => setMorePage("friends") },
+    { title: "CYG Coach", detail: "Insights across training, nutrition and progress", icon: "spark", action: () => setMorePage("coach") },
+    { title: "Progress", detail: "Weight, strength, records and measurements", icon: "progress", action: () => setActivePage("progress") },
+    { title: "Calendar", detail: "Workout and nutrition history", icon: "calendar", action: () => setMorePage("calendar") },
+    { title: "Achievements", detail: "PRs, streaks and milestones", icon: "trophy", action: () => setMorePage("achievements") },
+    { title: "Notifications", detail: "Workout, nutrition and weigh-in reminders", icon: "bell", action: () => setMorePage("notifications") },
+    { title: "Connect Apps & Devices", detail: "Apple Health, Strava, Garmin and more", icon: "settings", action: () => setMorePage("devices") },
+    { title: "Data & Backup", detail: "Local data, export and cloud status", icon: "share", action: () => openDetail("data") },
+    { title: "Support", detail: "Help center and feedback", icon: "info", action: () => setMorePage("support") },
+    { title: "About", detail: "Version, privacy and CYG information", icon: "info", action: () => setMorePage("about") },
   ];
 
   if (morePage !== "main") {
     return (
       <div className="min-h-[70vh]">
         <button onClick={() => setMorePage("main")} className="mb-6 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">← Back to More</button>
-        <div className="mb-6"><p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">CYG</p><h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950">{morePanelTitle(morePage)}</h1></div>
+        <PageHeader title={morePanelTitle(morePage)}/>
         {morePage === "friends" ? (
           <CloudFeatureFallback><FriendsPanel /></CloudFeatureFallback>
         ) : morePage === "coach" ? (
@@ -2143,7 +2216,7 @@ function ProfilePage({
     return (
       <div className="min-h-[70vh]">
         <button onClick={() => setDetailPage("main")} className="mb-6 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">← Back to More</button>
-        <div className="mb-6"><p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">CYG</p><h1 className="mt-2 text-4xl font-black tracking-tight">{titles[detailPage]}</h1></div>
+        <PageHeader title={titles[detailPage]}/>
 
         {detailPage === "profile" && (
           <div className="max-w-4xl space-y-5">
@@ -2229,26 +2302,13 @@ function ProfilePage({
     );
   }
 
-  return (
-    <>
-      <div className="flex flex-wrap items-end justify-between gap-5">
-        <div><p className="text-sm font-semibold tracking-widest text-blue-600">MORE</p><h1 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">More</h1><p className="mt-3 max-w-2xl text-slate-600">Profile, goals, calendar, achievements, devices, settings and your data.</p></div>
-        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm"><div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-100 font-black text-blue-700">CYG</div><div><div className="flex items-center gap-2"><p className="font-bold">CYG profile</p><span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${planTier === "premium" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}>{planTier}</span></div><p className="text-xs text-slate-500">{goalLabel} · {profile.trainingDays} days/week</p></div></div>
-      </div>
-      <section className="mt-7">
-        <div className="mb-5 rounded-[28px] border border-blue-200 bg-blue-50 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div><p className="text-xs font-black uppercase tracking-widest text-blue-700">Plan preview</p><p className="mt-1 text-sm font-semibold text-slate-700">See CYG exactly as a Free or Premium user. This is a preview switch, not billing.</p></div>
-            <div className="flex rounded-2xl bg-white p-1 shadow-sm">
-              {(["free","premium"] as const).map((tier) => <button key={tier} type="button" onClick={() => setPlanTier(tier)} className={`rounded-xl px-4 py-2 text-sm font-black capitalize ${planTier === tier ? "bg-blue-500 text-white" : "text-slate-500"}`}>{tier}</button>)}
-            </div>
-          </div>
-        </div>
-        <div className="mb-5 rounded-[28px] bg-slate-100 px-5 py-4"><div className="flex items-center gap-3"><span className="text-xl text-slate-500">⌕</span><input value={moreSearch} onChange={(e)=>setMoreSearch(e.target.value)} placeholder="Search settings..." className="w-full bg-transparent text-base font-medium outline-none placeholder:text-slate-600"/></div></div>
-        <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">{moreItems.filter(item => `${item.title} ${item.detail}`.toLowerCase().includes(moreSearch.toLowerCase())).map((item,index,arr)=><button key={item.title} onClick={item.action} className={`flex w-full items-center gap-4 px-5 py-4 text-left transition hover:bg-slate-50 ${index<arr.length-1?"border-b border-slate-100":""}`}><span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-slate-100 text-lg font-black text-slate-800">{item.icon}</span><span className="min-w-0 flex-1"><span className="block font-black text-slate-950">{item.title}</span><span className="mt-0.5 block text-xs text-slate-500">{item.detail}</span></span><span className="text-2xl font-light text-slate-600">›</span></button>)}</div>
-      </section>
-    </>
-  );
+  return <div className="cyg-more-page">
+    <PageHeader title="More" subtitle="Your profile, preferences and milestones."/>
+    <button className="cyg-card cyg-more-profile" onClick={()=>setMorePage('account')}><span className="cyg-profile-badge"><CygIcon name="user" size={25}/></span><div><strong>My CYG</strong><p>{goalLabel} · {profile.trainingDays} training days per week</p></div><CygIcon name="chevron" size={18}/></button>
+    <label className="cyg-settings-search"><CygIcon name="search" size={19}/><input aria-label="Search settings" value={moreSearch} onChange={e=>setMoreSearch(e.target.value)} placeholder="Search settings"/></label>
+    <div className="cyg-more-grid">{[['Your account',moreItems.slice(0,3)],['Your journey',moreItems.filter(item=>['Progress','Calendar','Achievements','Friends'].includes(item.title))],['Your tools',moreItems.filter(item=>['Fasting','Looksmaxing','Show Looksmaxing in navigation','CYG Coach'].includes(item.title))],['Preferences & help',moreItems.filter(item=>['Display & Appearance','Notifications','Connect Apps & Devices','Data & Backup','Support','About'].includes(item.title))]].map(([title,items])=>{const filtered=(items as typeof moreItems).filter(item=>`${item.title} ${item.detail}`.toLowerCase().includes(moreSearch.toLowerCase()));return filtered.length?<section key={title as string}><h2>{title as string}</h2><div className="cyg-card cyg-more-list">{filtered.map(item=><button key={item.title} onClick={item.action}><span><CygIcon name={item.icon} size={20}/></span><div><strong>{item.title}</strong><small>{item.detail}</small></div><CygIcon name="chevron" size={16}/></button>)}</div></section>:null})}</div>
+    <details className="cyg-plan-preview"><summary>Membership preview · {planTier==='premium'?'Premium':'Free'}</summary><p>Explore Free and Premium features during testing.</p><div>{(['free','premium'] as const).map(tier=><button key={tier} onClick={()=>setPlanTier(tier)} className={planTier===tier?'is-active':''}>{tier==='free'?'Free':'Premium'}</button>)}</div></details>
+  </div>;
 }
 
 function FastingTracker() {
@@ -2478,174 +2538,36 @@ function Dashboard({
         ? { eyebrow: "Evening focus", title: `${formatEnergy(Math.max(0, caloriesRemaining), displaySettings.energyUnit)} remaining`, detail: proteinLeft > 0 ? `${proteinLeft} g protein is still open today.` : "Protein is covered; finish the day close to your energy target.", page: "nutrition" as Page, action: "Open nutrition" }
         : { eyebrow: "Today", title: recoveryScore >= 80 ? "You're set up well" : "Keep today simple", detail: insight, page: proteinLeft > 0 ? "nutrition" as Page : "training" as Page, action: proteinLeft > 0 ? "Open nutrition" : "Open workout" };
 
-  return (
-    <div className="space-y-6">
-      <section className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-sm font-bold uppercase tracking-[0.18em] text-blue-600">
-            Today · {dateLabel}
-          </p>
-          <h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950 sm:text-5xl">
-            Today
-          </h1>
-          <p className="mt-2 text-slate-500">
-            Your training, nutrition and progress — today.
-          </p>
-        </div>
-        <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
-          <span className="text-slate-500">Goal </span>
-          <span className="font-black text-slate-900">
-            {bodyProfile.goal === "lose" ? "Lose fat" : bodyProfile.goal === "gain" ? "Build muscle" : "Maintain"}
-          </span>
-        </div>
-      </section>
+  const currentPlan = buildTrainingPlan(bodyProfile);
+  const currentWeek = strengthWeek(currentPlan, bodyProfile.preferredTrainingDays);
+  const todayIndex = (new Date().getDay()+6)%7;
+  const plannedSession = currentWeek[todayIndex]?.session;
+  const nextSession = plannedSession || currentWeek.slice(todayIndex+1).find(day=>day.session)?.session || currentPlan[0];
+  const workoutTitle = activeWorkout?.name || nextSession?.name || "Your next session";
+  const goalTitle = bodyProfile.goal === "lose" ? "Lose fat" : bodyProfile.goal === "gain" ? "Build muscle" : "Maintain balance";
+  const firstWeight = sortedWeights[0]?.weight || bodyProfile.weight;
+  const currentWeight = latestWeight?.weight || bodyProfile.weight;
+  const targetDistance = Math.abs(bodyProfile.targetWeight-firstWeight);
+  const goalProgress = targetDistance ? Math.min(100,Math.max(0,(1-Math.abs(currentWeight-bodyProfile.targetWeight)/targetDistance)*100)) : 0;
+  const energyFactor = displaySettings.energyUnit === "kj" ? 4.184 : 1;
+  const startPlanned = () => { if(!activeWorkout) sessionStorage.setItem("cyg-start-routine",nextSession?.name||"empty"); setActivePage("training"); };
 
-      <button onClick={() => setActivePage(smartFocus.page)} className="flex w-full flex-wrap items-center justify-between gap-4 rounded-3xl border border-blue-200 bg-blue-50 p-5 text-left transition hover:border-blue-300">
-        <div className="min-w-0">
-          <p className="text-xs font-black uppercase tracking-widest text-blue-700">{smartFocus.eyebrow}</p>
-          <p className="mt-1 text-xl font-black text-slate-950">{smartFocus.title}</p>
-          <p className="mt-1 text-sm text-slate-600">{smartFocus.detail}</p>
-        </div>
-        <span className="rounded-xl bg-blue-500 px-4 py-3 text-sm font-black text-white">{smartFocus.action} →</span>
-      </button>
-
-      {(activeWorkout || activeFast?.active) && (
-        <section className="grid gap-3 lg:grid-cols-2">
-          {activeWorkout && (
-            <button onClick={() => setActivePage("training")} className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-left shadow-sm transition hover:border-blue-300">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-widest text-blue-700">Workout in progress</p>
-                  <h2 className="mt-1 text-xl font-black text-slate-950">{activeWorkout.name || "Workout"}</h2>
-                  <p className="mt-1 text-sm text-slate-600">{activeWorkout.exercises?.length ?? 0} exercises · {activeWorkout.exercises?.reduce((sum, exercise) => sum + (exercise.sets?.filter((set) => set.completed).length ?? 0), 0) ?? 0} completed sets</p>
-                </div>
-                <span className="rounded-xl bg-white px-3 py-2 text-sm font-black text-blue-700 shadow-sm">{liveNow - new Date(activeWorkout.startedAt).getTime() > 12 * 3600000 ? "Resume timer" : formatLiveDuration(liveNow - new Date(activeWorkout.startedAt).getTime())}</span>
-              </div>
-              <span className="mt-4 inline-flex rounded-xl bg-blue-500 px-4 py-2 text-sm font-black text-white">Resume workout →</span>
-            </button>
-          )}
-          {activeFast?.active && activeFast.startedAt && (
-            <button onClick={() => { localStorage.setItem("mucipes-more-detail-intent", "fasting"); setActivePage("profile"); }} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-blue-300">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-black uppercase tracking-widest text-blue-600">Fast in progress</p>
-                  <h2 className="mt-1 text-xl font-black text-slate-950">{formatLiveDuration(liveNow - new Date(activeFast.startedAt).getTime())}</h2>
-                  <p className="mt-1 text-sm text-slate-500">Target {activeFast.targetHours}h · ends {new Date(new Date(activeFast.startedAt).getTime() + activeFast.targetHours * 3600000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
-                </div>
-                <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700">Active</span>
-              </div>
-              <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.min(100, ((liveNow - new Date(activeFast.startedAt).getTime()) / (activeFast.targetHours * 3600000)) * 100)}%` }} /></div>
-              <span className="mt-4 inline-flex text-sm font-black text-blue-700">Open fasting →</span>
-            </button>
-          )}
-        </section>
-      )}
-
-      <section className="grid gap-3 sm:grid-cols-3">
-        <button onClick={() => setActivePage("training")} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5">
-          <p className="text-xs font-black uppercase tracking-widest text-slate-600">Readiness</p>
-          <div className="mt-3 flex items-end justify-between"><p className="text-3xl font-black">{recoveryScore}</p><span className={`rounded-full px-3 py-1 text-xs font-black ${recoveryScore>=80?"bg-blue-100 text-blue-700":recoveryScore>=60?"bg-amber-100 text-amber-700":"bg-rose-100 text-rose-700"}`}>{recoveryLabel}</span></div>
-          <p className="mt-2 text-xs text-slate-500">Based on recent training and nutrition logging.</p>
-        </button>
-        <button onClick={() => setActivePage("training")} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5">
-          <p className="text-xs font-black uppercase tracking-widest text-slate-600">This week</p>
-          <p className="mt-3 text-3xl font-black">{weeklyWorkouts}<span className="text-base text-slate-600"> workouts</span></p>
-          <p className="mt-2 text-xs text-slate-500">Keep the week moving without overcomplicating it.</p>
-        </button>
-        <button onClick={() => setActivePage("nutrition")} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5">
-          <p className="text-xs font-black uppercase tracking-widest text-slate-600">Nutrition consistency</p>
-          <p className="mt-3 text-3xl font-black">{nutritionAdherence}<span className="text-base text-slate-600">%</span></p>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-500" style={{width:`${nutritionAdherence}%`}} /></div>
-        </button>
-      </section>
-
-      <section className="grid gap-4 lg:grid-cols-[1.25fr_.75fr]">
-        <button
-          onClick={() => setActivePage("nutrition")}
-          className="rounded-3xl border border-slate-200 bg-white p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
-        >
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-600">Calories</p>
-              <p className="mt-2 text-3xl font-black text-slate-950">
-                {formatEnergy(caloriesEaten, displaySettings.energyUnit)} <span className="text-lg text-slate-600">/ {formatEnergy(goals.calories, displaySettings.energyUnit)}</span>
-              </p>
-            </div>
-            <span className="rounded-xl bg-blue-50 px-3 py-2 text-sm font-bold text-blue-700">
-              {formatEnergy(Math.max(0, caloriesRemaining), displaySettings.energyUnit)} left
-            </span>
-          </div>
-          <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100">
-            <div
-              className="h-full rounded-full bg-blue-500"
-              style={{ width: `${Math.min(100, goals.calories ? (caloriesEaten / goals.calories) * 100 : 0)}%` }}
-            />
-          </div>
-          <div className="mt-5 grid grid-cols-3 gap-3">
-            <TodayMacro label="Protein" value={proteinEaten} goal={goals.protein} />
-            <TodayMacro label="Carbs" value={carbsEaten} goal={goals.carbs} />
-            <TodayMacro label="Fat" value={fatEaten} goal={goals.fat} />
-          </div>
-        </button>
-
-        <button
-          onClick={() => setActivePage("training")}
-          className="rounded-3xl border border-blue-200 bg-white p-6 text-left text-slate-950 shadow-sm transition hover:-translate-y-0.5"
-        >
-          <p className="text-xs font-bold uppercase tracking-widest text-blue-400">Today's workout</p>
-          <h2 className="mt-3 text-2xl font-black">
-            {lastWorkout ? "Ready for the next session?" : "Start your first workout"}
-          </h2>
-          <p className="mt-2 text-sm leading-6 text-slate-500">
-            {lastWorkout
-              ? `Last: ${lastWorkout.name} · ${Math.round(lastWorkout.durationSeconds / 60)} min`
-              : "Build a routine or start an empty workout."}
-          </p>
-          <span className="mt-6 inline-flex rounded-xl bg-blue-400 px-4 py-3 text-sm font-black text-white">
-            Start Workout →
-          </span>
-        </button>
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-3">
-        <TodayInfoCard
-          label="Weight trend"
-          value={latestWeight ? formatWeight(latestWeight.weight, displaySettings.units) : "No data"}
-          detail={weightChange === null ? "Add a weigh-in" : `${weightChange > 0 ? "+" : ""}${formatWeight(weightChange, displaySettings.units)} vs previous`}
-          onClick={() => setActivePage("progress")}
-        />
-        <TodayInfoCard
-          label="Training streak"
-          value={`${streak} day${streak === 1 ? "" : "s"}`}
-          detail={`${sortedWorkouts.length} workouts logged`}
-          onClick={() => setActivePage("progress")}
-        />
-        <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5">
-          <p className="text-xs font-bold uppercase tracking-widest text-blue-700">CYG Coach</p>
-          <p className="mt-3 text-lg font-black text-slate-950">{insight}</p>
-          <p className="mt-2 text-sm text-slate-600">Based on today's logged data.</p>
-        </div>
-      </section>
-
-      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-xs font-black uppercase tracking-widest text-blue-600">Weekly summary</p>
-            <h2 className="mt-1 text-xl font-black text-slate-950">The signals that matter</h2>
-          </div>
-          <span className="text-xs font-bold text-slate-600">Last 7 days</span>
-        </div>
-        <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
-          <WeeklySummaryStat label="Workouts" value={`${weeklyWorkouts}/${bodyProfile.trainingDays}`} />
-          <WeeklySummaryStat label="New PRs" value={`${weeklyPrs}`} />
-          <WeeklySummaryStat label="Avg protein" value={avgProtein7 === null ? "—" : `${avgProtein7} g`} />
-          <WeeklySummaryStat label="Calorie adherence" value={recentNutrition.length ? `${nutritionAdherence}%` : "—"} />
-          <WeeklySummaryStat label="Weight" value={weekWeightChange === null ? "—" : `${weekWeightChange > 0 ? "+" : ""}${formatWeight(weekWeightChange, displaySettings.units)}`} />
-        </div>
-        <p className="mt-4 text-sm leading-6 text-slate-500">{weeklyWorkouts >= bodyProfile.trainingDays && nutritionAdherence >= 85 ? "Strong consistency this week. Keep the plan stable unless your longer-term trend says otherwise." : "Use this summary for direction, not perfection. One off day does not require a plan change."}</p>
-      </section>
+  return <div className="cyg-dashboard">
+    <section className="cyg-home-hero">
+      <img src="/cyg/hero-athlete.png" alt="Athlete preparing for a training session"/>
+      <div><p>{hour<12?"Good morning":hour<18?"Good afternoon":"Good evening"}</p><h1>Your goals.<br/><span>Your pace.</span></h1><p className="cyg-hero-motto">Discipline today.<br/>A stronger tomorrow.</p></div>
+      <span className="cyg-hero-date">{dateLabel}</span>
+    </section>
+    <div className="cyg-home-grid">
+      <section className="cyg-card cyg-goal-card"><div className="cyg-card-heading"><h2>Your Goal</h2><button className="cyg-text-button" onClick={()=>{localStorage.setItem("mucipes-more-detail-intent","goals");setActivePage("profile")}}>Edit</button></div><div className="cyg-goal-content"><span className="cyg-goal-icon"><CygIcon name="target" size={27}/></span><div><h3>{goalTitle}</h3><p>{formatWeight(currentWeight,displaySettings.units)} <span>→</span> {formatWeight(bodyProfile.targetWeight,displaySettings.units)}</p><div className="cyg-track"><i style={{width:`${goalProgress}%`}}/></div></div></div></section>
+      <section className="cyg-card cyg-home-nutrition"><div className="cyg-card-heading"><h2>Nutrition Today</h2><button className="cyg-text-button" onClick={()=>setActivePage("nutrition")}>Open diary <CygIcon name="chevron" size={14}/></button></div><div className="cyg-nutrition-summary"><EnergyRing value={caloriesEaten*energyFactor} goal={goals.calories*energyFactor} unit={energyUnitLabel(displaySettings.energyUnit)}/><div><MacroTrack label="Protein" value={proteinEaten} goal={goals.protein}/><MacroTrack label="Carbs" value={carbsEaten} goal={goals.carbs}/><MacroTrack label="Fats" value={fatEaten} goal={goals.fat}/></div></div><p className="cyg-card-footnote">{formatEnergy(Math.max(0,caloriesRemaining),displaySettings.energyUnit)} remaining today</p></section>
+      <section className="cyg-card cyg-home-workout"><div className="cyg-card-heading"><h2>{activeWorkout?"Workout in progress":"Today's Workout"}</h2><button className="cyg-text-button" onClick={()=>setActivePage("training")}>View plan</button></div><div className="cyg-workout-photo"><img src="/cyg/hero-workout.png" alt="Dumbbell training in the gym"/><div><span className="cyg-pill">{activeWorkout?"In progress":plannedSession?"Today":"Up next"}</span><h3>{workoutTitle}{/^(Push|Pull|Legs)$/.test(workoutTitle)?" Day":""}</h3><p>{/pull/i.test(workoutTitle)?"Back · Biceps":/leg|lower/i.test(workoutTitle)?"Quads · Glutes · Hamstrings":/push/i.test(workoutTitle)?"Chest · Shoulders · Triceps":"Your training, your way"}</p><button className="cyg-primary" onClick={startPlanned}><CygIcon name="play" size={17}/>{activeWorkout?"Continue Workout":"Start Workout"}</button></div></div></section>
+      <section className="cyg-card cyg-home-week"><div className="cyg-card-heading"><h2>This Week</h2><strong>{weeklyWorkouts}<span className="cyg-muted"> / {bodyProfile.trainingDays} workouts</span></strong></div><div className="cyg-week-activity">{currentWeek.map((day,index)=>{const d=new Date();d.setDate(d.getDate()-todayIndex+index);const done=sortedWorkouts.some(w=>new Date(w.finishedAt).toDateString()===d.toDateString());return <div key={day.day}><span className={done?"is-done":index===todayIndex?"is-today":""}>{done?<CygIcon name="check" size={17}/>:d.getDate()}</span><small>{day.day}</small></div>})}</div><button className="cyg-inline-link" onClick={()=>setActivePage("progress")}>See your progress <CygIcon name="arrow" size={16}/></button></section>
+      <section className="cyg-card cyg-home-weight"><div className="cyg-card-heading"><h2>Weight Trend</h2><button className="cyg-text-button" onClick={()=>setActivePage("progress")}>View all</button></div><div className="cyg-weight-value">{latestWeight?formatWeight(latestWeight.weight,displaySettings.units):"Add your first weigh-in"}</div><MiniTrend values={sortedWeights.slice(-14).map(w=>kgToDisplay(w.weight,displaySettings.units))} labels={sortedWeights.slice(-14).map(w=>formatShortDate(w.date))}/></section>
+      <button className="cyg-dark-card cyg-focus-card" onClick={()=>setActivePage(smartFocus.page)}><span className="cyg-eyebrow">{smartFocus.eyebrow}</span><h2>{smartFocus.title}</h2><p>{smartFocus.detail}</p><span className="cyg-inline-link">{smartFocus.action}<CygIcon name="arrow" size={18}/></span></button>
     </div>
-  );
+    {activeFast?.active&&<button className="cyg-dark-card cyg-fasting-resume" onClick={()=>{localStorage.setItem("mucipes-more-detail-intent","fasting");setActivePage("profile")}}><CygIcon name="clock"/><div><strong>Fasting in progress</strong><p>Open your timer and fasting log.</p></div><CygIcon name="chevron"/></button>}
+  </div>;
 }
 
 function WeeklySummaryStat({ label, value }: { label: string; value: string }) {
@@ -3367,50 +3289,48 @@ function GetFitPlan({
         </section>
       </div>
 
-      <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-7">
+      <section className="mt-6 cyg-weekly-plan">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-600">
-              Weekly Schedule
-            </p>
-            <h2 className="mt-2 text-2xl font-bold">
-              Strength + cardio together
-            </h2>
+            <p className="cyg-weekly-eyebrow">YOUR TRAINING WEEK</p>
+            <h2 className="mt-2 text-2xl font-black tracking-tight">A plan with room to recover</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              CYG spreads strength and cardio across the week and tries
-              to avoid placing harder cardio directly before lower-body training.
+              Strength days follow the selected split in order. PPL always places Legs between Pull sessions.
             </p>
           </div>
         </div>
 
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-7">
-          {weeklySchedule.map((day) => (
+        <div className="cyg-weekly-grid">
+          {weeklySchedule.map((day, dayIndex) => (
             <div
               key={day.day}
-              className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+              className={`cyg-week-day ${day.items.length ? "has-session" : "is-rest"}`}
             >
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-600">
+              <p className="cyg-week-day-label">
                 {day.day}
               </p>
 
-              <div className="mt-3 space-y-2">
+              <div className="cyg-week-day-content">
                 {day.items.length > 0 ? (
                   day.items.map((item, index) => (
                     <div
                       key={`${item.label}-${index}`}
-                      className="rounded-xl bg-white p-3"
+                      className="cyg-week-session cyg-day-session"
                     >
-                      <p className="text-sm font-bold">
+                      <span className="cyg-week-session-mark cyg-day-number" aria-hidden="true">{dayIndex + 1}</span>
+                      <div>
+                      <p className="cyg-week-session-title">
                         {item.label}
                       </p>
-                      <p className="mt-1 text-xs leading-5 text-slate-500">
+                      <p className="cyg-week-session-detail">
                         {item.detail}
                       </p>
+                      </div>
                     </div>
                   ))
                 ) : (
-                  <p className="text-sm font-semibold text-slate-500">
-                    Rest
+                  <p className="cyg-week-rest cyg-day-rest">
+                    <span aria-hidden="true">↗</span> Recovery
                   </p>
                 )}
               </div>
@@ -3820,43 +3740,10 @@ function buildWeeklySchedule(
     items: [],
   }));
 
-  const strengthSlots: Record<number, number[]> = {
-    2: [0, 3],
-    3: [0, 2, 4],
-    4: [0, 1, 3, 4],
-    5: [0, 1, 2, 4, 5],
-    6: [0, 1, 2, 4, 5, 6],
-  };
+  const orderedPlan = orderTrainingDays(trainingPlan);
+  const slots = strengthDaySlots(orderedPlan.length, profile.preferredTrainingDays);
 
-  const fallbackSlots =
-    strengthSlots[Math.min(6, Math.max(2, trainingPlan.length))] ??
-    strengthSlots[4];
-
-  const preferred = Array.isArray(profile.preferredTrainingDays)
-    ? [...new Set(profile.preferredTrainingDays)]
-        .filter((day) => day >= 0 && day <= 6)
-        .slice(0, trainingPlan.length)
-    : [];
-
-  const slots = [...preferred];
-
-  for (const fallback of fallbackSlots) {
-    if (slots.length >= trainingPlan.length) {
-      break;
-    }
-
-    if (!slots.includes(fallback)) {
-      slots.push(fallback);
-    }
-  }
-
-  for (let day = 0; day < 7 && slots.length < trainingPlan.length; day++) {
-    if (!slots.includes(day)) {
-      slots.push(day);
-    }
-  }
-
-  trainingPlan.forEach((trainingDay, index) => {
+  orderedPlan.forEach((trainingDay, index) => {
     const slot = slots[index] ?? index;
 
     if (week[slot]) {
@@ -3878,7 +3765,7 @@ function buildWeeklySchedule(
 
   const lowerBodyDays = new Set<number>();
 
-  trainingPlan.forEach((trainingDay, index) => {
+  orderedPlan.forEach((trainingDay, index) => {
     const slot = slots[index] ?? index;
     const lowerName = trainingDay.name.toLowerCase();
 
@@ -4186,16 +4073,18 @@ function buildTrainingPlan(
   }
 
   if (days === 5) {
-    return [push, pull, legs, upper, lower];
+    // A five-session week continues the PPL sequence; cardio is scheduled
+    // separately by buildWeeklySchedule so the split remains predictable.
+    return [push, pull, legs, { ...push, name: "Push B", exercises: uniqueExercises([ex(inclinePress, "6–10"), ex(chestPress, "8–12"), ex(shoulderPress, "8–12"), ex(lateralRaise, "12–15"), ex(triceps, "8–15")]) }, { ...pull, name: "Pull B", exercises: uniqueExercises([ex(row, "6–10"), ex(verticalPull, "8–12"), ex(gym ? "Single Arm Cable Row" : row, "8–12"), ex(gym ? "Rear Delt Fly Machine" : lateralRaise, "12–15"), ex(biceps, "8–15")]) }];
   }
 
   return [
     push,
     pull,
     legs,
-    { ...push, name: "Push 2" },
-    { ...pull, name: "Pull 2" },
-    { ...legs, name: "Legs 2" },
+    { ...push, name: "Push B", exercises: uniqueExercises([ex(inclinePress, "6–10"), ex(chestPress, "8–12"), ex(shoulderPress, "8–12"), ex(lateralRaise, "12–15"), ex(triceps, "8–15")]) },
+    { ...pull, name: "Pull B", exercises: uniqueExercises([ex(row, "6–10"), ex(verticalPull, "8–12"), ex(gym ? "Single Arm Cable Row" : row, "8–12"), ex(gym ? "Rear Delt Fly Machine" : lateralRaise, "12–15"), ex(biceps, "8–15")]) },
+    { ...legs, name: "Legs B", exercises: uniqueExercises([ex(quad, "6–10"), ex(hinge, "8–12"), ex(squat, "8–12"), ex(hamstring, "10–15"), ex(calves, "12–15")]) },
   ];
 }
 
@@ -4886,7 +4775,7 @@ function Nutrition({
     setShowNewMeal(false);
   }
 return (
-    <>
+    <div className="cyg-nutrition-page">
       <div className="flex flex-wrap items-center justify-between gap-5">
         <div>
           <p className="text-sm font-semibold tracking-widest text-blue-600">
@@ -5374,7 +5263,7 @@ return (
           }
         />
       </section>
-    </>
+    </div>
   );
 }
 
@@ -5407,7 +5296,7 @@ function Progress({
   const [selectedExerciseId, setSelectedExerciseId] =
     useState("");
 
-  const [progressRange, setProgressRange] = useState<0 | 7 | 30 | 90 | 365>(30);
+  const [progressRange, setProgressRange] = useState<0 | 7 | 30 | 90 | 180 | 365>(90);
   const [measurements, setMeasurements] = useState<{date:string; waist?:number; chest?:number; arm?:number}[]>(() => {
     if (typeof window === "undefined") return [];
     try { const raw = localStorage.getItem("bodypilot-measurements"); return raw ? JSON.parse(raw) : []; }
@@ -5728,74 +5617,15 @@ function Progress({
   }
 
   return (
-    <>
-      <section className="mb-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-blue-600">Progress 2.0</p>
-            <h2 className="mt-1 text-2xl font-black">Your performance</h2>
-          </div>
-          <div className="flex rounded-xl bg-slate-100 p-1">
-            {([7,30,90,365,0] as const).map((days) => (
-              <button key={days} onClick={() => setProgressRange(days)} className={`rounded-lg px-3 py-2 text-xs font-bold ${progressRange===days ? "bg-white shadow-sm" : "text-slate-500"}`}>
-                {days === 0 ? "All" : days === 365 ? "1Y" : `${days}D`}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="mt-5 grid gap-3 sm:grid-cols-4">
-          <ProgressMini label="Weight entries" value={sortedWeightEntries.filter((e)=>progressRange===0 || Date.now()-getWeightEntryTime(e)<=progressRange*86400000).length} />
-          <ProgressMini label="Workouts" value={trainingHistory.filter((w)=>inProgressRange(w.finishedAt)).length} />
-          <ProgressMini label="Volume" value={formatWeight(trainingHistory.filter((w)=>inProgressRange(w.finishedAt)).reduce((sum,w)=>sum+w.exercises.reduce((es,e)=>es+e.sets.reduce((ss,set)=>ss+(set.weight||0)*(set.reps||0),0),0),0), displaySettings.units, 0)} />
-          <ProgressMini label="Measurements" value={measurements.length} />
-        </div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button onClick={()=>setActiveProgressTab("weight")} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold hover:border-blue-300 hover:bg-blue-50">+ Log weight</button>
-          <button onClick={()=>setActiveProgressTab("body")} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold hover:border-blue-300 hover:bg-blue-50">Body check-in</button>
-        </div>
-      </section>
-
-      <p className="text-sm font-semibold tracking-widest text-blue-600">
-        PROGRESS
-      </p>
-
-      <h1 className="mt-2 text-4xl font-bold">
-        Your progress
-      </h1>
-
-      <p className="mt-2 text-slate-600">
-        Track body weight, strength progress and
-        personal records.
-      </p>
-
-      <div className="mt-8 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2">
-        <ProgressTabButton name="Overview" active={activeProgressTab === "overview"} onClick={() => setActiveProgressTab("overview")} />
-        <ProgressTabButton name="Body" active={activeProgressTab === "body"} onClick={() => setActiveProgressTab("body")} />
-        <ProgressTabButton name="Body Weight" active={activeProgressTab === "weight"} onClick={() => setActiveProgressTab("weight")} />
-        <ProgressTabButton name="Strength" active={activeProgressTab === "strength"} onClick={() => setActiveProgressTab("strength")} />
-        <ProgressTabButton name="Personal Records" active={activeProgressTab === "records"} onClick={() => setActiveProgressTab("records")} />
-      </div>
-
-      {activeProgressTab === "overview" && (
-        <div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-widest text-blue-600">Progress overview</p>
-            <h2 className="mt-2 text-2xl font-black">Your trend, not one data point</h2>
-            <div className="mt-6 grid grid-cols-2 gap-3">
-              <ProgressMini label="Weight logs" value={sortedWeightEntries.length} />
-              <ProgressMini label="Workouts" value={trainingHistory.length} />
-              <ProgressMini label="Measurements" value={measurements.length} />
-              <ProgressMini label="Photos" value={progressPhotos.length} />
-            </div>
-            <button onClick={()=>setActiveProgressTab("weight")} className="mt-5 rounded-xl bg-blue-500 px-5 py-3 text-sm font-black text-white">Open weight trend →</button>
-          </section>
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-widest text-slate-600">Latest check-in</p>
-            <p className="mt-3 text-3xl font-black">{sortedWeightEntries.at(-1) ? formatWeight(sortedWeightEntries.at(-1)!.weight, displaySettings.units) : "—"}</p>
-            <p className="mt-2 text-sm text-slate-500">Use 7 / 30 / 90 day views to judge the direction instead of daily noise.</p>
-          </section>
-        </div>
-      )}
+    <div className="cyg-progress-page">
+      <PageHeader title="Progress" action={<button className="cyg-icon-button" aria-label="Log a body check-in" onClick={()=>setActiveProgressTab("weight")}><CygIcon name="plus"/></button>}/>
+      <div className="cyg-segments" aria-label="Progress sections">{([['overview','Overview'],['weight','Weight'],['strength','Strength'],['body','Photos & body'],['records','Records']] as const).map(([tab,label])=><button key={tab} className={activeProgressTab===tab?'is-active':''} onClick={()=>setActiveProgressTab(tab)}>{label}</button>)}</div>
+      {activeProgressTab === "overview" && <div className="cyg-progress-grid">
+        <section className="cyg-card"><div className="cyg-card-heading"><h2>Weight Trend</h2><div className="cyg-trend-change"><strong>{sortedWeightEntries.length>1?signedWeight(change):'—'}</strong><small>{first?`since ${formatShortDate(first.date)}`:'Log your first weigh-in'}</small></div></div><MiniTrend values={sortedWeightEntries.filter(e=>inProgressRange(e.date)).map(e=>displayWeightValue(e.weight))} labels={sortedWeightEntries.filter(e=>inProgressRange(e.date)).map(e=>formatShortDate(e.date))}/><div className="cyg-range-buttons">{([7,30,90,180,0] as const).map(days=><button key={days} className={progressRange===days?'is-active':''} onClick={()=>setProgressRange(days)}>{days===0?'All':days===7?'1W':`${days/30}M`}</button>)}</div><button className="cyg-inline-link" onClick={()=>setActiveProgressTab('weight')}>Log weight<CygIcon name="plus" size={16}/></button></section>
+        <section className="cyg-card"><div className="cyg-card-heading"><h2>Strength Progress</h2><button className="cyg-text-button" onClick={()=>setActiveProgressTab('strength')}>View all</button></div>{(()=>{const names=[...new Set(trainingHistory.flatMap(w=>w.exercises.map(e=>e.exerciseName)))].slice(0,3);return names.length?names.map(name=>{const samples=[...trainingHistory].sort((a,b)=>Date.parse(a.finishedAt)-Date.parse(b.finishedAt)).flatMap(w=>w.exercises.filter(e=>e.exerciseName===name).map(e=>Math.max(0,...e.sets.filter(s=>s.completed).map(s=>s.weight)))).filter(w=>w>0);const first=samples[0]||0,last=samples.at(-1)||0,pct=first?(last/first-1)*100:0;return <div className="cyg-strength-line" key={name}><div><strong>{name}</strong><p>{formatWeight(first,displaySettings.units)} → {formatWeight(last,displaySettings.units)}</p></div><div><span>{pct>=0?'+':''}{Math.round(pct)}%</span><div className="cyg-track"><i style={{width:`${Math.min(100,Math.max(8,50+pct/2))}%`}}/></div></div></div>}):<p className="cyg-empty">Complete a workout to start tracking your strength.</p>})()}</section>
+        <section className="cyg-card"><div className="cyg-card-heading"><h2>Workout Consistency</h2><span className="cyg-muted">Last 5 weeks</span></div><div className="cyg-consistency-bars">{Array.from({length:5},(_,index)=>{const end=Date.now()-(4-index)*7*864e5,start=end-7*864e5,count=trainingHistory.filter(w=>Date.parse(w.finishedAt)>=start&&Date.parse(w.finishedAt)<end).length;return <div key={index}><strong>{count}</strong><span style={{height:`${Math.max(4,Math.min(120,count*18))}px`}}/><small>W{index+1}</small></div>})}</div><p className="cyg-card-footnote">{trainingHistory.length} workouts logged in total. Every session counts.</p></section>
+        <section className="cyg-card"><div className="cyg-card-heading"><h2>Achievements</h2><button className="cyg-text-button" onClick={()=>{localStorage.setItem('mucipes-more-detail-intent','achievements');window.dispatchEvent(new CustomEvent('cyg-open-more'))}}>See all</button></div><div className="cyg-achievement-mini">{[{label:'Workouts',value:trainingHistory.length,icon:'workout'},{label:'Weight logs',value:weightEntries.length,icon:'progress'},{label:'Check-ins',value:measurements.length,icon:'trophy'}].map(x=><div key={x.label}><span><CygIcon name={x.icon} size={26}/></span><strong>{x.value}</strong><small>{x.label}</small></div>)}</div></section>
+      </div>}
 
       {activeProgressTab === "body" && (
         <div className="grid gap-5 lg:grid-cols-[.8fr_1.2fr]">
@@ -6199,7 +6029,7 @@ function Progress({
           )}
         </section>
       )}
-    </>
+    </div>
   );
 }
 
@@ -6501,6 +6331,13 @@ function getTodayDateInput() {
   return formatLocalDateKey(new Date());
 }
 
+function previousLocalDateKey(dateKey: string) {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  const previous = new Date(year, month - 1, day, 12);
+  previous.setDate(previous.getDate() - 1);
+  return formatLocalDateKey(previous);
+}
+
 function formatLocalDateKey(date: Date) {
   return [
     date.getFullYear(),
@@ -6512,7 +6349,10 @@ function formatLocalDateKey(date: Date) {
 function normalizeDateKey(value: unknown) {
   if (typeof value !== "string") return null;
   const match = value.match(/^\d{4}-\d{2}-\d{2}/);
-  return match ? match[0] : null;
+  if (!match) return null;
+  const [year, month, day] = match[0].split("-").map(Number);
+  const parsed = new Date(year, month - 1, day, 12);
+  return formatLocalDateKey(parsed) === match[0] ? match[0] : null;
 }
 
 function parseFoodList(raw: string | null): Food[] {
@@ -6550,7 +6390,7 @@ function migrateLegacyFoodsIntoDiary(
   if (legacyFoods.length === 0) return history;
 
   const existing = history.find((day) => day.date === legacyDate);
-  if (existing && existing.foods.length > 0) return history;
+  if (existing) return history;
 
   return [
     ...history.filter((day) => day.date !== legacyDate),
@@ -6634,8 +6474,7 @@ function AppNavButton({
   setActivePage: React.Dispatch<React.SetStateAction<Page>>;
 }) {
   const active =
-    activePage === page ||
-    (page === "profile" && activePage === "progress");
+    activePage === page;
 
   return (
     <button
@@ -6665,17 +6504,15 @@ function MobileNavButton({
   setActivePage: React.Dispatch<React.SetStateAction<Page>>;
 }) {
   const active =
-    activePage === page ||
-    (page === "profile" && activePage === "progress");
+    activePage === page;
 
   return (
     <button
       onClick={() => setActivePage(page)}
-      className={`min-w-0 flex-1 rounded-xl px-1 py-2 text-center transition ${
-        active ? "text-blue-600" : "text-slate-600"
-      }`}
+      aria-current={active ? "page" : undefined}
+      className={`cyg-nav-item ${active ? "is-active" : ""}`}
     >
-      <span className="block text-lg font-black leading-5">{icon}</span>
+      <CygIcon name={icon}/>
       <span className="mt-1 block text-[10px] font-bold">{label}</span>
     </button>
   );

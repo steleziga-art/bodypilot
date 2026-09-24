@@ -3,6 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { cacheAccountDataLocally, clearPrivateAccountCache } from "@/lib/supabase/storage";
 
 type Mode = "login" | "signup";
 
@@ -82,8 +83,20 @@ export default function AccountPanel() {
     setError("");
     setMessage("");
     setLoading(true);
+    const userId = session?.user.id;
+    if (!userId || !(await cacheAccountDataLocally(userId))) {
+      setError("CYG could not safely save this device's account cache. You are still signed in; try again after the device has storage space.");
+      setLoading(false);
+      return;
+    }
     const { error: signOutError } = await supabase.auth.signOut();
-    if (signOutError) setError(signOutError.message);
+    if (signOutError) {
+      setError(signOutError.message);
+      setLoading(false);
+      return;
+    }
+    clearPrivateAccountCache();
+    window.location.reload();
     setLoading(false);
   }
 
@@ -126,10 +139,10 @@ export default function AccountPanel() {
               <StatusCard label="Session" value="Active" detail="Persists after refresh" />
             </div>
 
-            <div className="mt-6 rounded-2xl bg-amber-50 p-4 text-sm text-amber-900">
-              <p className="font-black">Cloud data migration comes next</p>
-              <p className="mt-1 leading-6 text-amber-800">
-                Your existing workouts, nutrition and progress still stay in localStorage for now, so nothing is lost while we move each module safely.
+            <div className="mt-6 rounded-2xl bg-blue-50 p-4 text-sm text-blue-950">
+              <p className="font-black">Your account data stays with your account</p>
+              <p className="mt-1 leading-6 text-blue-900">
+                Logging out hides this account&apos;s data from the app on this device. Data already synced to CYG Cloud is kept and loads again when you sign back into this account.
               </p>
             </div>
 
@@ -139,9 +152,9 @@ export default function AccountPanel() {
             <button
               onClick={signOut}
               disabled={loading}
-              className="mt-6 rounded-2xl border-2 border-slate-300 bg-white px-5 py-3 text-sm font-black !text-slate-950 shadow-sm hover:bg-slate-50 disabled:opacity-50" style={{ color: "#020617" }}
+              className="mt-6 rounded-2xl border-2 border-slate-300 bg-white px-5 py-3 text-sm font-black text-slate-950 shadow-sm hover:bg-slate-50 disabled:opacity-50"
             >
-              {loading ? "Signing out…" : "Log out"}
+              {loading ? "Saving account data…" : "Log out"}
             </button>
           </div>
         </section>
@@ -185,7 +198,7 @@ export default function AccountPanel() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 block w-full cursor-pointer rounded-2xl border-2 border-blue-700 !bg-blue-600 px-5 py-4 text-center text-base font-black !text-white shadow-md hover:!bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50" style={{ backgroundColor: "#052e96", color: "#020617" }}
+              className="mt-2 block w-full cursor-pointer rounded-2xl border-2 border-blue-700 !bg-blue-600 px-5 py-4 text-center text-base font-black !text-white shadow-md hover:!bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50" style={{ backgroundColor: "#052e96", color: "#ffffff" }}
             >
               {loading ? "Please wait…" : mode === "login" ? "Log in" : "Create account"}
             </button>

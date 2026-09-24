@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { mergeDatedDiaries, diaryForDate } from "@/lib/nutrition/dailyDiary";
+import SyncStatus from "@/components/system/SyncStatus";
+import cygLogo from "./cyg-logo.jpeg";
+import { useEffect, useMemo, useState, useRef } from "react";
 import FoodDiary from "@/components/FoodDiary";
 import FoodSearch from "@/components/FoodSearch";
 import NutritionInsights from "@/components/nutrition/NutritionInsights";
@@ -14,6 +17,7 @@ import Looksmaxing from "@/components/looksmaxing/Looksmaxing";
 import PremiumPaywall from "@/components/premium/PremiumPaywall";
 import { applyMucipesAppearance, cmToDisplay, displayToCm, displayToKg, formatEnergy, formatLength, formatWeight, kgToDisplay, lengthUnitLabel, weightUnitLabel } from "@/lib/mucipes/display";
 import { loadCloudData, saveCloudData } from "@/lib/supabase/storage";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 type Page =
   | "dashboard"
@@ -133,6 +137,7 @@ type TrainingExercise = {
   exerciseId: string;
   exerciseName: string;
   sets: TrainingSet[];
+  cardio?: { durationMinutes: number; distanceKm?: number };
 };
 
 type TrainingHistoryEntry = {
@@ -173,6 +178,13 @@ function formatLiveDuration(ms: number) {
   const minutes = Math.floor((safe % 3600000) / 60000);
   const seconds = Math.floor((safe % 60000) / 1000);
   return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function displayTrainingDuration(workout: TrainingHistoryEntry) {
+  if (!workout.id.startsWith("lyfta-")) return Math.round(workout.durationSeconds / 60);
+  const count = workout.exercises.reduce((sum, exercise) => sum + exercise.sets.filter(set => set.completed && set.reps > 0).length, 0);
+  const cardio = workout.exercises.reduce((sum, exercise) => sum + (exercise.cardio?.durationMinutes || 0), 0);
+  return Math.round(Math.max(8, cardio + 3 + count * 2.5 + workout.exercises.length * 1.5));
 }
 
 function roundEstimated1RM(kg: number, units: "metric" | "imperial") {
@@ -255,6 +267,12 @@ const defaultMeals: Meal[] = [
 ];
 
 export default function Home() {
+  const [pinLooks, setPinLooks] = useState(false);
+  useEffect(() => {
+    const sync = () => setPinLooks(localStorage.getItem("cyg-pin-looksmaxing") === "true");
+    sync(); window.addEventListener("cyg-navigation", sync); window.addEventListener("storage", sync);
+    return () => { window.removeEventListener("cyg-navigation", sync); window.removeEventListener("storage", sync); };
+  }, []);
   const [globalDisplay, setGlobalDisplay] = useState(() => readMucipesDisplaySettings());
   useEffect(() => {
     const sync = () => setGlobalDisplay(readMucipesDisplaySettings());
@@ -271,6 +289,8 @@ export default function Home() {
   const [activePage, setActivePage] =
     useState<Page>("dashboard");
 
+  const [diaryDate, setDiaryDate] = useState(getTodayDateInput);
+  const diaryDateRef = useRef(diaryDate);
   const [foods, setFoods] =
     useState<Food[]>([]);
 
@@ -299,6 +319,18 @@ export default function Home() {
     useState(false);
 
   const [cloudReady, setCloudReady] = useState(false);
+  const [authVersion, setAuthVersion] = useState(0);
+  useEffect(() => {
+    let client: ReturnType<typeof getSupabaseBrowserClient>;
+    try { client = getSupabaseBrowserClient(); } catch { return; }
+    const { data } = client.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN" || event === "SIGNED_OUT") {
+        setCloudReady(false);
+        setAuthVersion(version => version + 1);
+      }
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
 
   const [showOnboarding, setShowOnboarding] =
     useState(false);
@@ -367,36 +399,31 @@ export default function Home() {
       }
 
       const today = getTodayDateInput();
+      const savedDate =
+        normalizeDateKey(savedFoodDiaryDate) || today;
+      const parsedFoods = parseFoodList(savedFoods);
+      const parsedDiaryHistory =
+        parseFoodDiaryHistory(savedFoodDiaryHistory);
+      const migratedDiaryHistory =
+        migrateLegacyFoodsIntoDiary(
+          parsedDiaryHistory,
+          parsedFoods,
+          savedDate
+        );
 
-      if (savedFoodDiaryHistory) {
-        const parsedDiaryHistory = JSON.parse(savedFoodDiaryHistory);
+      setFoodDiaryHistory(migratedDiaryHistory);
 
-        if (Array.isArray(parsedDiaryHistory)) {
-          setFoodDiaryHistory(parsedDiaryHistory);
-
-          const todayDiary = parsedDiaryHistory.find(
-            (day: FoodDiaryDay) => day.date === today
-          );
-
-          if (todayDiary && Array.isArray(todayDiary.foods)) {
-            setFoods(todayDiary.foods);
-          } else if (savedFoodDiaryDate === today && savedFoods) {
-            const parsedFoods = JSON.parse(savedFoods);
-            if (Array.isArray(parsedFoods)) setFoods(parsedFoods);
-          } else {
-            setFoods([]);
-          }
-        }
-      } else if (savedFoods) {
-        const parsedFoods = JSON.parse(savedFoods);
-
-        if (Array.isArray(parsedFoods)) {
-          // First migration: keep the existing log as today's diary.
-          setFoods(parsedFoods);
-        }
+      if (savedDate === today && parsedFoods.length > 0) {
+        setFoods(parsedFoods);
+      } else {
+        setFoods(diaryForDate(migratedDiaryHistory, today));
       }
 
       localStorage.setItem("bodypilot-food-diary-date", today);
+      localStorage.setItem(
+        "bodypilot-food-diary-history",
+        JSON.stringify(migratedDiaryHistory)
+      );
 
       if (savedMeals) {
         const parsedMeals =
@@ -484,7 +511,7 @@ export default function Home() {
       }
     } catch (error) {
       console.error(
-        "Could not load Mucipes data:",
+        "Could not load CYG data:",
         error
       );
     } finally {
@@ -502,6 +529,9 @@ export default function Home() {
     let cancelled = false;
 
     async function hydrateFromCloud() {
+      const diaryBeforeHydration = parseFoodDiaryHistory(
+        localStorage.getItem("bodypilot-food-diary-history")
+      );
       const [
         cloudFoods,
         cloudMeals,
@@ -526,13 +556,31 @@ export default function Home() {
 
       if (cancelled) return;
 
-      if (Array.isArray(cloudFoods)) setFoods(cloudFoods);
+      // Legacy cloud `foods` has no date and must never overwrite today's diary.
+      if (Array.isArray(cloudFoodDiaryHistory)) {
+        const localDiary = parseFoodDiaryHistory(
+          localStorage.getItem("bodypilot-food-diary-history")
+        );
+        const merged = mergeDatedDiaries(
+          parseFoodDiaryHistory(JSON.stringify(cloudFoodDiaryHistory)),
+          localDiary,
+          diaryBeforeHydration.map(day=>day.date)
+        );
+        setFoodDiaryHistory(merged);
+        const today = getTodayDateInput();
+        setDiaryDate(today); diaryDateRef.current = today;
+        setFoods(diaryForDate(merged, today));
+      } else if (Array.isArray(cloudFoods)) {
+        const today = getTodayDateInput();
+        setDiaryDate(today); diaryDateRef.current = today;
+        setFoods(diaryForDate(diaryBeforeHydration, today));
+      }
       if (Array.isArray(cloudMeals) && cloudMeals.length) setMeals(cloudMeals);
       if (cloudGoals) setGoals(cloudGoals);
       if (Array.isArray(cloudWeight)) setWeightEntries(cloudWeight);
       if (cloudProfile) setBodyProfile({ ...defaultProfile, ...cloudProfile });
-      if (Array.isArray(cloudNutritionHistory)) setNutritionHistory(cloudNutritionHistory);
-      if (Array.isArray(cloudFoodDiaryHistory)) setFoodDiaryHistory(cloudFoodDiaryHistory);
+      if (Array.isArray(cloudNutritionHistory)) setNutritionHistory(local => Array.from(new Map([...cloudNutritionHistory,...local].map(day=>[day.date,day])).values()).sort((a,b)=>a.date.localeCompare(b.date)));
+
       if (cloudAppMode === "guided" || cloudAppMode === "self-managed") setAppMode(cloudAppMode);
       if (cloudOnboarding === true) setShowOnboarding(false);
 
@@ -541,7 +589,7 @@ export default function Home() {
 
     void hydrateFromCloud();
     return () => { cancelled = true; };
-  }, [loaded]);
+  }, [loaded, authVersion]);
 
   useEffect(() => {
     if (!loaded) {
@@ -570,7 +618,6 @@ export default function Home() {
 
     if (cloudReady) {
       void Promise.all([
-        saveCloudData("foods", foods),
         saveCloudData("meals", meals),
         saveCloudData("goals", goals),
         saveCloudData("weight", weightEntries),
@@ -587,17 +634,17 @@ export default function Home() {
   ]);
 
   useEffect(() => {
-    if (!loaded) {
+    if (!loaded || !cloudReady) {
       return;
     }
 
-    const today = getTodayDateInput();
+    const today = diaryDate;
 
     setFoodDiaryHistory((current) => {
       const withoutToday = current.filter((day) => day.date !== today);
       const next = [...withoutToday, { date: today, foods }]
         .sort((a, b) => a.date.localeCompare(b.date))
-        .slice(-120);
+;
 
       localStorage.setItem(
         "bodypilot-food-diary-history",
@@ -608,7 +655,7 @@ export default function Home() {
 
       return next;
     });
-  }, [foods, loaded, cloudReady]);
+  }, [foods, diaryDate, loaded, cloudReady]);
 
   useEffect(() => {
     if (!loaded) {
@@ -736,7 +783,7 @@ export default function Home() {
       return;
     }
 
-    const today = getTodayDateInput();
+    const today = diaryDate;
 
     setNutritionHistory((current) => {
       const todaySnapshot: NutritionDay = {
@@ -757,7 +804,7 @@ export default function Home() {
             new Date(a.date).getTime() -
             new Date(b.date).getTime()
         )
-        .slice(-120);
+;
 
       localStorage.setItem(
         "bodypilot-nutrition-history",
@@ -769,12 +816,31 @@ export default function Home() {
     });
   }, [
     loaded,
+    diaryDate,
     caloriesEaten,
     proteinEaten,
     carbsEaten,
     fatEaten,
     cloudReady,
   ]);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const rollover = () => {
+      const today = getTodayDateInput();
+      if (today === diaryDateRef.current) return;
+      diaryDateRef.current = today;
+      let entries: FoodDiaryDay[] = [];
+      try { entries = JSON.parse(localStorage.getItem("bodypilot-food-diary-history") || "[]"); } catch {}
+      setDiaryDate(today);
+      setFoods(diaryForDate(entries, today));
+    };
+    const timer = window.setInterval(rollover, 1000);
+    window.addEventListener("focus", rollover);
+    document.addEventListener("visibilitychange", rollover);
+    rollover();
+    return () => { clearInterval(timer); window.removeEventListener("focus", rollover); document.removeEventListener("visibilitychange", rollover); };
+  }, [loaded]);
 
   function addFood(food: Food) {
     setFoods((current) => [
@@ -939,7 +1005,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f7f9f8] text-slate-950">
+    <main className="cyg-app-shell min-h-screen bg-[#f4f7fc] text-slate-950">
       {loaded && showOnboarding && (
         <OnboardingModal
           profile={bodyProfile}
@@ -958,16 +1024,14 @@ export default function Home() {
           }}
         />
       )}
-      <nav className="sticky top-0 z-50 hidden border-b border-slate-200 bg-white/95 backdrop-blur md:block">
+      <nav className="cyg-top-nav sticky top-0 z-50 hidden border-b border-slate-200 bg-white/95 backdrop-blur md:block">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-6 py-4">
           <button
             onClick={() => setActivePage("dashboard")}
             className="flex items-center gap-3 text-xl font-black tracking-tight"
           >
-            <span className="grid h-9 w-9 place-items-center rounded-xl bg-emerald-500 text-sm font-black text-white">
-              MP
-            </span>
-            Mucipes
+            <img src={cygLogo.src} alt="CYG" className="h-11 w-11 rounded-xl object-cover" />
+            <span>CYG<small className="block text-[10px] font-semibold tracking-widest text-slate-500">Choose Your Goal</small></span>
           </button>
 
           <div className="flex items-center gap-1 rounded-2xl bg-slate-100 p-1">
@@ -977,13 +1041,14 @@ export default function Home() {
             {appMode === "guided" && (
               <AppNavButton label="Plan" page="plan" activePage={activePage} setActivePage={setActivePage} />
             )}
-            <AppNavButton label="Looksmaxing" page="looksmaxing" activePage={activePage} setActivePage={setActivePage} />
+            {pinLooks && <AppNavButton label="Looksmaxing" page="looksmaxing" activePage={activePage} setActivePage={setActivePage} />}
             <AppNavButton label="More" page="profile" activePage={activePage} setActivePage={setActivePage} />
           </div>
         </div>
       </nav>
 
-      <div className="mx-auto max-w-6xl px-4 py-6 pb-28 sm:px-6 sm:py-10 md:pb-10">
+      <SyncStatus />
+      <div className="cyg-page-shell mx-auto max-w-6xl px-4 py-6 pb-28 sm:px-6 sm:py-10 md:pb-10">
         {activePage ===
           "dashboard" && (
           <Dashboard
@@ -1020,7 +1085,7 @@ export default function Home() {
 
         {activePage ===
           "nutrition" && (
-          <NutritionHub
+          <NutritionHub key={diaryDate}
             foods={foods}
             meals={meals}
             goals={goals}
@@ -1066,9 +1131,16 @@ export default function Home() {
             nutritionHistory={
               nutritionHistory
             }
-            foodDiaryHistory={
-              foodDiaryHistory
-            }
+            foodDiaryHistory={foodDiaryHistory}
+            onUpdateDiary={(date, updatedFoods)=>{
+              if(date===diaryDate){setFoods(updatedFoods);return;}
+              const diary=[...foodDiaryHistory.filter(d=>d.date!==date),{date,foods:updatedFoods}].sort((a,b)=>a.date.localeCompare(b.date));
+              const totals=updatedFoods.reduce((t,f)=>({calories:t.calories+f.calories,protein:t.protein+f.protein,carbs:t.carbs+f.carbs,fat:t.fat+f.fat}),{calories:0,protein:0,carbs:0,fat:0});
+              const snapshots=[...nutritionHistory.filter(d=>d.date!==date),{date,...totals}].sort((a,b)=>a.date.localeCompare(b.date));
+              setFoodDiaryHistory(diary);setNutritionHistory(snapshots);
+              localStorage.setItem("bodypilot-food-diary-history",JSON.stringify(diary));localStorage.setItem("bodypilot-nutrition-history",JSON.stringify(snapshots));
+              if(cloudReady){void saveCloudData("food_diary_history",diary);void saveCloudData("nutrition_history",snapshots);}
+            }}
             updateFood={updateFood}
             duplicateFood={duplicateFood}
             duplicateMeal={duplicateMeal}
@@ -1132,7 +1204,7 @@ export default function Home() {
         )}
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur md:hidden">
+      <nav className="cyg-mobile-nav fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 backdrop-blur md:hidden">
         <div className="mx-auto flex max-w-lg items-center justify-around">
           <MobileNavButton icon="⌂" label="Home" page="dashboard" activePage={activePage} setActivePage={setActivePage} />
           <MobileNavButton icon="◉" label="Workout" page="training" activePage={activePage} setActivePage={setActivePage} />
@@ -1140,6 +1212,7 @@ export default function Home() {
           {appMode === "guided" && (
             <MobileNavButton icon="✦" label="Plan" page="plan" activePage={activePage} setActivePage={setActivePage} />
           )}
+          {pinLooks && <MobileNavButton icon="✧" label="Looksmaxing" page="looksmaxing" activePage={activePage} setActivePage={setActivePage} />}
           <MobileNavButton icon="•••" label="More" page="profile" activePage={activePage} setActivePage={setActivePage} />
         </div>
       </nav>
@@ -1191,11 +1264,11 @@ function OnboardingModal({
       <div className="mx-auto my-6 max-w-2xl rounded-3xl border border-slate-200 bg-slate-50 p-6 shadow-2xl sm:p-8">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600">
-              Welcome to Mucipes
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-600">
+              Welcome to CYG
             </p>
             <h1 className="mt-2 text-3xl font-black">
-              {step === -1 ? "Choose your Mucipes experience" : "Personalize your starting plan"}
+              {step === -1 ? "Choose your CYG experience" : "Personalize your starting plan"}
             </h1>
           </div>
           <span className="text-sm text-slate-500">
@@ -1216,11 +1289,11 @@ function OnboardingModal({
               <div
                 className={`h-1.5 rounded-full ${
                   index <= step
-                    ? "bg-emerald-500"
+                    ? "bg-blue-500"
                     : "bg-slate-100"
                 }`}
               />
-              <p className="mt-2 hidden text-xs text-slate-400 sm:block">
+              <p className="mt-2 hidden text-xs text-slate-600 sm:block">
                 {name}
               </p>
             </div>
@@ -1232,12 +1305,12 @@ function OnboardingModal({
           <div className="mt-8 grid gap-4 sm:grid-cols-2">
             <button
               onClick={() => setStep(0)}
-              className="rounded-3xl border border-emerald-500 bg-emerald-500/10 p-6 text-left transition hover:bg-emerald-500/15"
+              className="rounded-3xl border border-blue-500 bg-blue-500/10 p-6 text-left transition hover:bg-blue-500/15"
             >
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-600">Guided</p>
-              <h2 className="mt-3 text-2xl font-black">Guided by Mucipes</h2>
-              <p className="mt-3 leading-6 text-slate-600">Mucipes builds your nutrition, training and cardio plan from your goals and progress, then helps you adjust it over time.</p>
-              <p className="mt-5 font-semibold text-emerald-600">Create my plan →</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-blue-600">Guided</p>
+              <h2 className="mt-3 text-2xl font-black">Guided by CYG</h2>
+              <p className="mt-3 leading-6 text-slate-600">CYG builds your nutrition, training and cardio plan from your goals and progress, then helps you adjust it over time.</p>
+              <p className="mt-5 font-semibold text-blue-600">Create my plan →</p>
             </button>
 
             <button
@@ -1246,7 +1319,7 @@ function OnboardingModal({
             >
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Experienced</p>
               <h2 className="mt-3 text-2xl font-black">Self-managed</h2>
-              <p className="mt-3 leading-6 text-slate-600">Use Mucipes as your tracker. Set your own targets, build your own workouts and log nutrition, weight and progress yourself.</p>
+              <p className="mt-3 leading-6 text-slate-600">Use CYG as your tracker. Set your own targets, build your own workouts and log nutrition, weight and progress yourself.</p>
               <p className="mt-5 font-semibold text-slate-950">Go to dashboard →</p>
             </button>
           </div>
@@ -1270,7 +1343,7 @@ function OnboardingModal({
                   }
                   className={`rounded-2xl border p-5 text-left ${
                     draft.goal === value
-                      ? "border-emerald-500 bg-emerald-500/10"
+                      ? "border-blue-500 bg-blue-500/10"
                       : "border-slate-200 bg-white"
                   }`}
                 >
@@ -1480,14 +1553,14 @@ function OnboardingModal({
                   Math.min(steps.length - 1, current + 1)
                 )
               }
-              className="rounded-xl bg-emerald-500 px-6 py-3 font-bold text-black hover:bg-emerald-400"
+              className="rounded-xl bg-blue-500 px-6 py-3 font-bold text-white hover:bg-blue-400"
             >
               Continue
             </button>
           ) : (
             <button
               onClick={finish}
-              className="rounded-xl bg-emerald-500 px-6 py-3 font-bold text-black hover:bg-emerald-400"
+              className="rounded-xl bg-blue-500 px-6 py-3 font-bold text-white hover:bg-blue-400"
             >
               Create my plan
             </button>
@@ -1515,7 +1588,7 @@ function MoreActionCard({
   return (
     <button
       onClick={onClick}
-      className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-300 hover:shadow-md"
+      className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md"
     >
       <div className="flex items-center justify-between gap-3">
         <div>
@@ -1535,10 +1608,10 @@ function morePanelTitle(panel: MorePanel) {
     notifications: "Notifications",
     devices: "Apps & Devices",
     support: "Support",
-    about: "About Mucipes",
+    about: "About CYG",
     account: "Account & Sync",
     friends: "Friends",
-    coach: "Mucipes Coach",
+    coach: "CYG Coach",
   } as Record<MorePanel, string>)[panel];
 }
 
@@ -1579,13 +1652,13 @@ function MorePanelContent({
           <div key={workout.id} className="rounded-2xl bg-slate-50 p-4">
             <div className="flex justify-between gap-3">
               <p className="font-black text-slate-900">{workout.name}</p>
-              <p className="text-xs text-slate-400">{new Date(workout.finishedAt).toLocaleDateString()}</p>
+              <p className="text-xs text-slate-600">{new Date(workout.finishedAt).toLocaleDateString()}</p>
             </div>
-            <p className="mt-1 text-sm text-slate-500">{Math.round(workout.durationSeconds/60)} min · {workout.exercises.length} exercises</p>
+            <p className="mt-1 text-sm text-slate-500">{workout.id.startsWith("lyfta-") ? "~" : ""}{displayTrainingDuration(workout)} min · {workout.exercises.length} exercises</p>
           </div>
         ))}
         {recentWorkouts.length === 0 && <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-500">No workouts logged yet.</p>}
-        <p className="pt-2 text-xs font-bold uppercase tracking-widest text-slate-400">{nutritionHistory.length} nutrition days saved</p>
+        <p className="pt-2 text-xs font-bold uppercase tracking-widest text-slate-600">{nutritionHistory.length} nutrition days saved</p>
       </div>
     );
   }
@@ -1617,7 +1690,7 @@ function MorePanelContent({
         {["Apple Health", "Garmin", "Strava"].map((name) => (
           <div key={name} className="flex items-center justify-between rounded-2xl border border-slate-200 p-4">
             <div><p className="font-black">{name}</p><p className="text-xs text-slate-500">External platform connection requires its production API and user permission.</p></div>
-            <span className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-400">Soon</span>
+            <span className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-600">Soon</span>
           </div>
         ))}
       </div>
@@ -1627,23 +1700,51 @@ function MorePanelContent({
   if (panel === "support") {
     return (
       <div className="mt-6 space-y-3 text-sm text-slate-600">
-        <div className="rounded-2xl bg-slate-50 p-4"><p className="font-black text-slate-900">Quick help</p><p className="mt-1">Your data is synced to your Mucipes cloud account with local browser caching for fast loading.</p></div>
+        <div className="rounded-2xl bg-slate-50 p-4"><p className="font-black text-slate-900">Quick help</p><p className="mt-1">Your data is synced to your CYG cloud account with local browser caching for fast loading.</p></div>
         <div className="rounded-2xl bg-slate-50 p-4"><p className="font-black text-slate-900">Feedback</p><p className="mt-1">Support and feedback submission will connect to the production backend later.</p></div>
       </div>
     );
   }
 
+  return <AboutContactCard />;
+}
+
+function AboutContactCard() {
   return (
-    <div className="mt-6 space-y-4">
-      <div className="grid h-16 w-16 place-items-center rounded-2xl bg-emerald-500 font-black text-white">MP</div>
-      <div><p className="text-xl font-black">Mucipes V2</p><p className="mt-1 text-sm text-slate-500">Training, nutrition and progress in one focused app.</p></div>
-      <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">Cloud sync enabled · local cache active</div>
-    </div>
+    <section className="mt-6 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm" aria-label="About CYG">
+      <div className="bg-gradient-to-br from-slate-950 via-blue-950 to-blue-900 p-6 sm:p-8">
+        <img src={cygLogo.src} alt="CYG logo" className="h-20 w-20 rounded-2xl object-cover shadow-lg" />
+        <p className="mt-5 text-xs font-bold uppercase tracking-[0.2em] text-blue-200">Choose Your Goal</p>
+        <h2 className="mt-2 text-2xl font-black tracking-tight text-white">CYG by Mucipes</h2>
+        <p className="mt-3 max-w-md text-sm leading-6 text-blue-100">Training, nutrition and progress in one focused app.</p>
+      </div>
+      <div className="p-5 sm:p-8">
+        <h3 className="text-lg font-black text-slate-950">Stay connected</h3>
+        <p className="mt-1 text-sm text-slate-500">Follow our updates or get in touch.</p>
+        <div className="mt-5 grid gap-3">
+          <a href="https://www.instagram.com/chooseyourgoal/" target="_blank" rel="noopener noreferrer" className="group flex min-h-20 items-center gap-4 rounded-2xl border border-blue-100 bg-blue-50/50 p-4 transition hover:border-blue-300 hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-blue-950 text-white">
+              <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" /><circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none" /></svg>
+            </span>
+            <span className="min-w-0 flex-1"><span className="block text-xs font-semibold text-slate-500">Instagram</span><span className="mt-1 block break-words text-sm font-bold text-slate-950">@chooseyourgoal</span></span>
+            <span aria-hidden="true" className="text-xl text-blue-800">↗</span>
+            <span className="sr-only">Opens in a new tab</span>
+          </a>
+          <a href="mailto:chooseyourowngoal@gmail.com" className="flex min-h-20 items-center gap-4 rounded-2xl border border-slate-200 p-4 transition hover:border-blue-300 hover:bg-blue-50/50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+            <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-blue-950">
+              <svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="3" /><path d="m4 7 8 6 8-6" /></svg>
+            </span>
+            <span className="min-w-0 flex-1"><span className="block text-xs font-semibold text-slate-500">Email</span><span className="mt-1 block break-all text-sm font-bold text-slate-950">chooseyourowngoal@gmail.com</span></span>
+            <span aria-hidden="true" className="text-xl text-blue-800">→</span>
+          </a>
+        </div>
+      </div>
+    </section>
   );
 }
 
 function MoreStat({label,value}:{label:string;value:string|number}) {
-  return <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p><p className="mt-2 text-xl font-black">{value}</p></div>;
+  return <div className="rounded-2xl bg-slate-50 p-4"><p className="text-xs font-bold uppercase tracking-wider text-slate-600">{label}</p><p className="mt-2 text-xl font-black">{value}</p></div>;
 }
 
 function MoreToggle({storageKey,title,detail}:{storageKey:string;title:string;detail:string}) {
@@ -1654,11 +1755,18 @@ function MoreToggle({storageKey,title,detail}:{storageKey:string;title:string;de
   return (
     <button onClick={() => { const next=!enabled; setEnabled(next); localStorage.setItem(storageKey,String(next)); }} className="flex w-full items-center justify-between gap-4 rounded-2xl border border-slate-200 p-4 text-left">
       <div><p className="font-black text-slate-900">{title}</p><p className="mt-1 text-xs text-slate-500">{detail}</p></div>
-      <span className={`relative h-7 w-12 rounded-full transition ${enabled ? "bg-emerald-500" : "bg-slate-200"}`}><span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition ${enabled ? "left-6" : "left-1"}`} /></span>
+      <span className={`relative h-7 w-12 rounded-full transition ${enabled ? "bg-blue-500" : "bg-slate-200"}`}><span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow transition ${enabled ? "left-6" : "left-1"}`} /></span>
     </button>
   );
 }
 
+
+function CloudFeatureFallback({ children }: { children: React.ReactNode }) {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY) {
+    return <div className="rounded-xl border border-slate-200 bg-white p-5 text-slate-700">Account and Friends need the Supabase URL and publishable key configured for this deployment.</div>;
+  }
+  return <>{children}</>;
+}
 
 function MoreFullPage({
   page,
@@ -1675,7 +1783,7 @@ function MoreFullPage({
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   if (page === "account") {
-    return <AccountPanel />;
+    return <CloudFeatureFallback><AccountPanel /></CloudFeatureFallback>;
   }
 
   if (page === "calendar") {
@@ -1699,7 +1807,7 @@ function MoreFullPage({
             <h2 className="text-xl font-black">{calendarMonth.toLocaleDateString(undefined,{month:"long",year:"numeric"})}</h2>
             <button onClick={()=>setCalendarMonth(new Date(year,month+1,1))} className="rounded-xl border border-slate-200 px-3 py-2 font-black">→</button>
           </div>
-          <div className="mt-5 grid grid-cols-7 gap-2 text-center text-xs font-bold text-slate-400">
+          <div className="mt-5 grid grid-cols-7 gap-2 text-center text-xs font-bold text-slate-600">
             {(calendarSettings.weekStarts === "sunday" ? ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"] : ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]).map(d=><div key={d}>{d}</div>)}
           </div>
           <div className="mt-2 grid grid-cols-7 gap-2">
@@ -1709,10 +1817,10 @@ function MoreFullPage({
               const workout=workoutDates.has(key), nutrition=nutritionDates.has(key);
               return (
                 <button key={key} onClick={()=>setSelectedDay(key)}
-                  className={`min-h-20 rounded-2xl border p-2 text-left transition ${selectedDay===key?"border-emerald-500 bg-emerald-50":"border-slate-200 hover:bg-slate-50"}`}>
+                  className={`min-h-20 rounded-2xl border p-2 text-left transition ${selectedDay===key?"border-blue-500 bg-blue-50":"border-slate-200 hover:bg-slate-50"}`}>
                   <span className="font-black text-slate-800">{day}</span>
                   <div className="mt-3 flex gap-1">
-                    {workout && <span className="h-2 w-2 rounded-full bg-emerald-500" />}
+                    {workout && <span className="h-2 w-2 rounded-full bg-blue-500" />}
                     {nutrition && <span className="h-2 w-2 rounded-full bg-amber-400" />}
                   </div>
                 </button>
@@ -1723,7 +1831,7 @@ function MoreFullPage({
         <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
           <h3 className="text-lg font-black">{selectedDay || "Select a day"}</h3>
           <div className="mt-4 space-y-3">
-            {selectedWorkouts.map(w=><div key={w.id} className="rounded-2xl bg-slate-50 p-4"><p className="font-black">{w.name}</p><p className="mt-1 text-sm text-slate-500">{Math.round(w.durationSeconds/60)} min · {w.exercises.length} exercises</p></div>)}
+            {selectedWorkouts.map(w=><div key={w.id} className="rounded-2xl bg-slate-50 p-4"><p className="font-black">{w.name}</p><p className="mt-1 text-sm text-slate-500">{w.id.startsWith("lyfta-") ? "~" : ""}{displayTrainingDuration(w)} min · {w.exercises.length} exercises</p></div>)}
             {selectedDay && selectedWorkouts.length===0 && <p className="text-sm text-slate-500">No workout logged on this day.</p>}
           </div>
         </section>
@@ -1732,21 +1840,28 @@ function MoreFullPage({
   }
 
   if (page === "achievements") {
-    const totalSets=trainingHistory.reduce((sum,w)=>sum+w.exercises.reduce((a,e)=>a+e.sets.filter(x=>x.completed).length,0),0);
-    const totalVolume=Math.round(trainingHistory.reduce((sum,w)=>sum+w.exercises.reduce((a,e)=>a+e.sets.reduce((z,x)=>z+(x.weight||0)*(x.reps||0),0),0),0));
-    const achievements=[
-      ["First Flight","Complete your first workout",trainingHistory.length>=1],
-      ["Consistency","Complete 10 workouts",trainingHistory.length>=10],
-      ["Century","Complete 100 working sets",totalSets>=100],
-      ["Volume Builder","Lift 100,000 kg total volume",totalVolume>=100000],
-      ["Nutrition Logger","Save 7 nutrition days",nutritionHistory.length>=7],
-      ["Committed","Complete 50 workouts",trainingHistory.length>=50],
+    const completedSets = trainingHistory.reduce((sum, workout) => sum + workout.exercises.reduce((total, exercise) => total + exercise.sets.filter(set => set.completed).length, 0), 0);
+    const totalVolume = Math.round(trainingHistory.reduce((sum, workout) => sum + workout.exercises.reduce((exSum, exercise) => exSum + exercise.sets.filter(set => set.completed).reduce((setSum, set) => setSum + Math.max(0, set.weight) * Math.max(0, set.reps), 0), 0), 0));
+    const activeDays = new Set(trainingHistory.map(workout => new Date(workout.finishedAt).toISOString().slice(0, 10))).size;
+    const cardioSessions = trainingHistory.reduce((sum, workout) => sum + workout.exercises.filter(exercise => Boolean(exercise.cardio)).length, 0);
+    const next = (value: number, milestones: number[]) => milestones.find(target => value < target) ?? milestones[milestones.length - 1];
+    const achievements = [
+      { icon: "⚡", title: "Training sessions", value: trainingHistory.length, target: next(trainingHistory.length, [1, 5, 10, 25, 50, 100]), unit: "workouts", detail: "Build a consistent training habit." },
+      { icon: "◉", title: "Working sets", value: completedSets, target: next(completedSets, [50, 100, 250, 500, 1000]), unit: "sets", detail: "Every completed set adds to your total." },
+      { icon: "↗", title: "Volume builder", value: totalVolume, target: next(totalVolume, [10000, 25000, 50000, 100000, 250000]), unit: "kg lifted", detail: "Total logged weight × repetitions." },
+      { icon: "▦", title: "Active days", value: activeDays, target: next(activeDays, [7, 14, 30, 60, 100]), unit: "days", detail: "Distinct days with a completed workout." },
+      { icon: "◷", title: "Cardio starter", value: cardioSessions, target: next(cardioSessions, [1, 5, 10, 25, 50]), unit: "cardio sessions", detail: "Cardio entries saved in your workout history." },
+      { icon: "✦", title: "Nutrition logging", value: nutritionHistory.length, target: next(nutritionHistory.length, [7, 14, 30, 60, 100]), unit: "days logged", detail: "Days with saved nutrition data." },
     ];
-    return <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{achievements.map(([title,detail,done]:any)=><div key={title} className={`rounded-3xl border p-5 ${done?"border-emerald-200 bg-emerald-50":"border-slate-200 bg-white"}`}><div className={`grid h-12 w-12 place-items-center rounded-2xl text-xl font-black ${done?"bg-emerald-500 text-white":"bg-slate-100 text-slate-400"}`}>{done?"✓":"○"}</div><p className="mt-4 text-lg font-black">{title}</p><p className="mt-1 text-sm text-slate-500">{detail}</p></div>)}</div>;
+    const currentLevel = trainingHistory.length >= 100 ? "Elite" : trainingHistory.length >= 50 ? "Advanced" : trainingHistory.length >= 10 ? "Building" : "Getting started";
+    return <div className="cyg-achievements-page">
+      <section className="cyg-achievement-hero"><div><p className="cyg-achievement-eyebrow">YOUR CYG MILESTONES</p><h2>{currentLevel}</h2><p>Every session, set and logged day moves you forward.</p></div><div className="cyg-achievement-score"><strong>{trainingHistory.length}</strong><span>workouts</span></div></section>
+      <div className="cyg-achievement-grid">{achievements.map(item => { const progress = Math.min(100, item.value / Math.max(1, item.target) * 100); return <article key={item.title} className="cyg-achievement-card"><div className="cyg-achievement-card-top"><span className="cyg-achievement-icon">{item.icon}</span><span className={item.value >= item.target ? "cyg-achievement-earned" : "cyg-achievement-level"}>{item.value >= item.target ? "MILESTONE REACHED" : "IN PROGRESS"}</span></div><h3>{item.title}</h3><p>{item.detail}</p><div className="cyg-achievement-progress"><span style={{width:`${progress}%`}} /></div><div className="cyg-achievement-count"><strong>{item.value.toLocaleString()}</strong><span> / {item.target.toLocaleString()} {item.unit}</span></div><small>{item.value >= item.target ? "Next milestone unlocked" : `${Math.max(0, item.target - item.value).toLocaleString()} to go`}</small></article>; })}</div>
+    </div>;
   }
 
   if (page === "notifications") {
-    return <div className="max-w-2xl space-y-4"><MoreToggle storageKey="bodypilot-notify-workout" title="Workout reminder" detail="Remind me about today's planned workout."/><MoreToggle storageKey="bodypilot-notify-nutrition" title="Nutrition reminder" detail="Remind me if daily nutrition logging is incomplete."/><MoreToggle storageKey="bodypilot-notify-weighin" title="Weekly weigh-in" detail="Get a weekly reminder to record bodyweight."/><MoreToggle storageKey="bodypilot-notify-rest" title="Rest-day check-in" detail="Mucipes can surface recovery reminders."/></div>;
+    return <div className="max-w-2xl space-y-4"><MoreToggle storageKey="bodypilot-notify-workout" title="Workout reminder" detail="Remind me about today's planned workout."/><MoreToggle storageKey="bodypilot-notify-nutrition" title="Nutrition reminder" detail="Remind me if daily nutrition logging is incomplete."/><MoreToggle storageKey="bodypilot-notify-weighin" title="Weekly weigh-in" detail="Get a weekly reminder to record bodyweight."/><MoreToggle storageKey="bodypilot-notify-rest" title="Rest-day check-in" detail="CYG can surface recovery reminders."/></div>;
   }
 
   if (page === "devices") {
@@ -1757,32 +1872,28 @@ function MoreFullPage({
       { name: "Garmin", detail: "Training and activity data", status: "Garmin API authorization required" },
       { name: "Strava", detail: "Workout activity sync", status: "OAuth integration not configured" },
     ];
-    return <div className="space-y-4"><div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-900"><p className="font-black">No fake connections</p><p className="mt-1">Mucipes only shows a connection as available when the required platform authorization is actually configured. Your current web build keeps these integrations read-only on this screen.</p></div><div className="grid gap-4 md:grid-cols-2">{devices.map((device)=><div key={device.name} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-4"><div><p className="text-lg font-black">{device.name}</p><p className="mt-1 text-sm text-slate-500">{device.detail}</p></div><span className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-500">Unavailable</span></div><div className="mt-5 rounded-xl bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-500">{device.status}</div></div>)}</div></div>;
+    return <div className="space-y-4"><div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900"><p className="font-black">No fake connections</p><p className="mt-1">CYG only shows a connection as available when the required platform authorization is actually configured. Your current web build keeps these integrations read-only on this screen.</p></div><div className="grid gap-4 md:grid-cols-2">{devices.map((device)=><div key={device.name} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-4"><div><p className="text-lg font-black">{device.name}</p><p className="mt-1 text-sm text-slate-500">{device.detail}</p></div><span className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-500">Unavailable</span></div><div className="mt-5 rounded-xl bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-500">{device.status}</div></div>)}</div></div>;
   }
 
   if (page === "support") {
     return <div className="grid gap-4 lg:grid-cols-2"><section className="rounded-3xl border border-slate-200 bg-white p-6"><h2 className="text-xl font-black">Help center</h2><div className="mt-5 space-y-3">{[
       ["How do I start a workout?","Open Workout, choose Start New Workout or a saved routine, add exercises and complete each set. Your finished session feeds History, Progress, Coach and weekly summaries."],
       ["How is my calorie goal calculated?","Guided Plan estimates a starting target from your profile, activity and goal. Weekly trend data can suggest small adjustments that you choose whether to apply."],
-      ["Where is my data stored?","Mucipes keeps a fast local browser cache and syncs supported app data to your Supabase account."],
-      ["How do I back up Mucipes?","Open More → Data & Backup to export a JSON backup. The same screen can restore that file later."],
+      ["Where is my data stored?","CYG keeps a fast local browser cache and syncs supported app data to your Supabase account."],
+      ["How do I back up CYG?","Open More → Data & Backup to export a JSON backup. The same screen can restore that file later."],
     ].map(([q,a])=><details key={q} className="rounded-2xl bg-slate-50 p-4"><summary className="cursor-pointer font-bold">{q}</summary><p className="mt-3 text-sm leading-6 text-slate-600">{a}</p></details>)}</div></section><FeedbackBox /></div>;
   }
 
   return (
     <div className="max-w-3xl space-y-5">
-      <section className="rounded-3xl border border-slate-200 bg-white p-7 shadow-sm">
-        <div className="grid h-20 w-20 place-items-center rounded-3xl bg-emerald-500 text-2xl font-black text-white">MP</div>
-        <h2 className="mt-6 text-3xl font-black">Mucipes</h2>
-        <p className="mt-3 max-w-xl leading-7 text-slate-600">Training, nutrition, progress and adaptive guidance in one connected app.</p>
-      </section>
+      <AboutContactCard />
       <section className="grid gap-3 sm:grid-cols-3">
-        <MoreStat label="Mode" value="Tester build" />
+        <MoreStat label="Mode" value="CYG" />
         <MoreStat label="Storage" value="Cloud + local" />
         <MoreStat label="Profile" value={formatWeight(profile.weight, readMucipesDisplaySettings().units)} />
       </section>
       <section className="rounded-3xl border border-slate-200 bg-white p-6">
-        <h3 className="font-black">Build status</h3>
+        <h3 className="font-black">About this version</h3>
         <p className="mt-2 text-sm leading-6 text-slate-500">Core training, nutrition, progress, social, fasting and guided-plan flows are active. External health/device integrations remain intentionally unavailable until their platform authorization is configured.</p>
       </section>
     </div>
@@ -1813,7 +1924,7 @@ function FeedbackBox() {
     }
   }
 
-  return <section className="rounded-3xl border border-slate-200 bg-white p-6"><h2 className="text-xl font-black">Send feedback</h2><p className="mt-2 text-sm text-slate-500">Saved to your Mucipes cloud data so tester notes are not just a decorative button.</p><textarea value={text} onChange={(event)=>{setText(event.target.value); if(status==="error") setStatus("idle");}} className="mt-4 min-h-40 w-full rounded-2xl border border-slate-200 p-4 outline-none focus:border-emerald-400" placeholder="Tell us what should be improved..." /><div className="mt-3 flex flex-wrap items-center gap-3"><button type="button" disabled={!text.trim() || status==="saving"} onClick={()=>void submitFeedback()} className="rounded-xl bg-emerald-500 px-5 py-3 font-black text-white disabled:opacity-50">{status==="saving"?"Saving…":status==="saved"?"Saved ✓":"Send feedback"}</button>{status==="error"&&<p className="text-sm font-semibold text-red-500">Could not sync feedback. Try again.</p>}</div></section>;
+  return <section className="rounded-3xl border border-slate-200 bg-white p-6"><h2 className="text-xl font-black">Send feedback</h2><p className="mt-2 text-sm text-slate-500">Share your ideas or report a problem.</p><textarea value={text} onChange={(event)=>{setText(event.target.value); if(status==="error") setStatus("idle");}} className="mt-4 min-h-40 w-full rounded-2xl border border-slate-200 p-4 outline-none focus:border-blue-400" placeholder="Tell us what should be improved..." /><div className="mt-3 flex flex-wrap items-center gap-3"><button type="button" disabled={!text.trim() || status==="saving"} onClick={()=>void submitFeedback()} className="rounded-xl bg-blue-500 px-5 py-3 font-black text-white disabled:opacity-50">{status==="saving"?"Saving…":status==="saved"?"Saved ✓":"Send feedback"}</button>{status==="error"&&<p className="text-sm font-semibold text-red-500">Could not sync feedback. Try again.</p>}</div></section>;
 }
 
 function ProfilePage({
@@ -1848,6 +1959,8 @@ function ProfilePage({
   >("main");
   const [detailPage, setDetailPage] = useState<"main" | "profile" | "goals" | "display" | "data" | "fasting">("main");
   const [moreSearch, setMoreSearch] = useState("");
+  const [showLooksShortcut, setShowLooksShortcut] = useState(false);
+  useEffect(() => setShowLooksShortcut(localStorage.getItem("cyg-pin-looksmaxing") === "true"), []);
   const [profileSaved, setProfileSaved] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
 
@@ -1912,7 +2025,7 @@ function ProfilePage({
       setSettingsSaved(true);
       window.setTimeout(() => setSettingsSaved(false), 1800);
     } catch (error) {
-      console.error("Could not save Mucipes display settings:", error);
+      console.error("Could not save CYG display settings:", error);
       alert("Settings were saved on this device, but cloud sync failed.");
     }
   }
@@ -1940,19 +2053,19 @@ function ProfilePage({
       const text = await file.text();
       const parsed = JSON.parse(text) as { localData?: Record<string, unknown> };
       if (!parsed || typeof parsed !== "object" || !parsed.localData || typeof parsed.localData !== "object") {
-        alert("This does not look like a Mucipes backup.");
+        alert("This does not look like a CYG backup.");
         return;
       }
-      if (!window.confirm("Import this backup? Existing Mucipes local data with the same keys will be replaced.")) return;
+      if (!window.confirm("Import this backup? Existing CYG local data with the same keys will be replaced.")) return;
       for (const [key, value] of Object.entries(parsed.localData)) {
-        if (!key.startsWith("bodypilot-")) continue;
+        if (!["bodypilot-","mucipes-","cyg-"].some(prefix=>key.startsWith(prefix))) continue;
         localStorage.setItem(key, JSON.stringify(value));
       }
       window.dispatchEvent(new Event("mucipes-settings-changed"));
-      alert("Backup imported. Mucipes will reload now.");
+      alert("Backup imported. CYG will reload now.");
       window.location.reload();
     } catch (error) {
-      console.error("Mucipes backup import failed", error);
+      console.error("CYG backup import failed", error);
       alert("Could not import this backup file.");
     }
   }
@@ -1960,7 +2073,7 @@ function ProfilePage({
   function exportBackup() {
     const backup: Record<string, unknown> = {
       exportedAt: new Date().toISOString(),
-      app: "Mucipes",
+      app: "CYG",
       profile,
       settings,
       appMode,
@@ -1970,7 +2083,7 @@ function ProfilePage({
     const localData: Record<string, unknown> = {};
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
-      if (!key || !key.startsWith("bodypilot-")) continue;
+      if (!key || !["bodypilot-","mucipes-","cyg-"].some(prefix=>key.startsWith(prefix))) continue;
       const raw = localStorage.getItem(key);
       try { localData[key] = raw ? JSON.parse(raw) : null; }
       catch { localData[key] = raw; }
@@ -1999,8 +2112,9 @@ function ProfilePage({
     { title: "Display & Appearance", detail: "Units and app preferences", icon: "▣", action: () => openDetail("display") },
     { title: "Fasting", detail: "Timer, schedule, history and streaks", icon: "◷", action: () => openDetail("fasting") },
     { title: "Looksmaxing", detail: planTier === "premium" ? "Premium appearance routine, scans and progress" : "Preview the Premium appearance module", icon: "✦", action: () => setActivePage("looksmaxing") },
+    { title: "Show Looksmaxing in navigation", detail: showLooksShortcut ? "On · shown beside Workout and Nutrition" : "Off · available from More", icon: showLooksShortcut ? "✓" : "＋", action: () => { const next = !showLooksShortcut; setShowLooksShortcut(next); localStorage.setItem("cyg-pin-looksmaxing", String(next)); window.dispatchEvent(new Event("cyg-navigation")); } },
     { title: "Friends", detail: "Add friends and control what they can see", icon: "♧", action: () => setMorePage("friends") },
-    { title: "Mucipes Coach", detail: "Insights across training, nutrition and progress", icon: "✦", action: () => setMorePage("coach") },
+    { title: "CYG Coach", detail: "Insights across training, nutrition and progress", icon: "✦", action: () => setMorePage("coach") },
     { title: "Progress", detail: "Weight, strength, records and measurements", icon: "↗", action: () => setActivePage("progress") },
     { title: "Calendar", detail: "Workout and nutrition history", icon: "□", action: () => setMorePage("calendar") },
     { title: "Achievements", detail: "PRs, streaks and milestones", icon: "★", action: () => setMorePage("achievements") },
@@ -2008,16 +2122,16 @@ function ProfilePage({
     { title: "Connect Apps & Devices", detail: "Apple Health, Strava, Garmin and more", icon: "↻", action: () => setMorePage("devices") },
     { title: "Data & Backup", detail: "Local data, export and cloud status", icon: "⇅", action: () => openDetail("data") },
     { title: "Support", detail: "Help center and feedback", icon: "?", action: () => setMorePage("support") },
-    { title: "About", detail: "Version, privacy and Mucipes information", icon: "i", action: () => setMorePage("about") },
+    { title: "About", detail: "Version, privacy and CYG information", icon: "i", action: () => setMorePage("about") },
   ];
 
   if (morePage !== "main") {
     return (
       <div className="min-h-[70vh]">
         <button onClick={() => setMorePage("main")} className="mb-6 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">← Back to More</button>
-        <div className="mb-6"><p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-600">Mucipes</p><h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950">{morePanelTitle(morePage)}</h1></div>
+        <div className="mb-6"><p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">CYG</p><h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950">{morePanelTitle(morePage)}</h1></div>
         {morePage === "friends" ? (
-          <FriendsPanel />
+          <CloudFeatureFallback><FriendsPanel /></CloudFeatureFallback>
         ) : morePage === "coach" ? (
           planTier === "premium" ? (
             <CoachPage
@@ -2044,7 +2158,7 @@ function ProfilePage({
     return (
       <div className="min-h-[70vh]">
         <button onClick={() => setDetailPage("main")} className="mb-6 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">← Back to More</button>
-        <div className="mb-6"><p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-600">Mucipes</p><h1 className="mt-2 text-4xl font-black tracking-tight">{titles[detailPage]}</h1></div>
+        <div className="mb-6"><p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-600">CYG</p><h1 className="mt-2 text-4xl font-black tracking-tight">{titles[detailPage]}</h1></div>
 
         {detailPage === "profile" && (
           <div className="max-w-4xl space-y-5">
@@ -2061,7 +2175,7 @@ function ProfilePage({
                 <PlanSelect label="Experience" value={profile.experience} onChange={(v) => update("experience", v as BodyProfile["experience"])} options={[["beginner","Beginner"],["intermediate","Intermediate"],["advanced","Advanced"]]} />
                 <PlanSelect label="Equipment" value={profile.equipment} onChange={(v) => update("equipment", v as BodyProfile["equipment"])} options={[["full-gym","Full gym"],["home","Home gym / dumbbells"],["bodyweight","Bodyweight only"]]} />
               </div>
-              <button onClick={saveProfileNow} className="mt-6 rounded-2xl bg-emerald-500 px-6 py-3 font-black text-white">{profileSaved ? "Saved ✓" : "Save profile"}</button>
+              <button onClick={saveProfileNow} className="mt-6 rounded-2xl bg-blue-500 px-6 py-3 font-black text-white">{profileSaved ? "Saved ✓" : "Save profile"}</button>
             </section>
           </div>
         )}
@@ -2078,8 +2192,8 @@ function ProfilePage({
                 <PlanSelect label="Cardio days" value={String(profile.cardioDays)} onChange={(v) => update("cardioDays", Number(v))} options={[["1","1 day / week"],["2","2 days / week"],["3","3 days / week"],["4","4 days / week"],["5","5 days / week"]]} />
                 <PlanSelect label="Preferred cardio" value={profile.cardioType} onChange={(v) => update("cardioType", v as BodyProfile["cardioType"])} options={[["walking","Walking"],["running","Running"],["cycling","Cycling"],["incline-walk","Incline treadmill"],["stairmaster","Stairmaster"],["rowing","Rowing"]]} />
               </div>
-              <div className="mt-6 rounded-2xl bg-slate-50 p-4"><p className="text-sm font-black">App mode</p><div className="mt-3 flex gap-2"><button onClick={() => changeMode("guided")} className={`rounded-xl px-4 py-2 text-sm font-black ${appMode === "guided" ? "bg-emerald-500 text-white" : "bg-white border border-slate-200"}`}>Guided</button><button onClick={() => changeMode("self-managed")} className={`rounded-xl px-4 py-2 text-sm font-black ${appMode === "self-managed" ? "bg-emerald-500 text-white" : "bg-white border border-slate-200"}`}>Self-managed</button></div></div>
-              <button onClick={saveProfileNow} className="mt-6 rounded-2xl bg-emerald-500 px-6 py-3 font-black text-white">{profileSaved ? "Saved ✓" : "Save goals"}</button>
+              <div className="mt-6 rounded-2xl bg-slate-50 p-4"><p className="text-sm font-black">App mode</p><div className="mt-3 flex gap-2"><button onClick={() => changeMode("guided")} className={`rounded-xl px-4 py-2 text-sm font-black ${appMode === "guided" ? "bg-blue-500 text-white" : "bg-white border border-slate-200"}`}>Guided</button><button onClick={() => changeMode("self-managed")} className={`rounded-xl px-4 py-2 text-sm font-black ${appMode === "self-managed" ? "bg-blue-500 text-white" : "bg-white border border-slate-200"}`}>Self-managed</button></div></div>
+              <button onClick={saveProfileNow} className="mt-6 rounded-2xl bg-blue-500 px-6 py-3 font-black text-white">{profileSaved ? "Saved ✓" : "Save goals"}</button>
             </section>
           </div>
         )}
@@ -2088,7 +2202,7 @@ function ProfilePage({
           <div className="max-w-3xl space-y-5">
             <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <h2 className="text-xl font-black">Appearance</h2>
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">{(["light","dark","system"] as const).map(v => <button key={v} onClick={() => updateSettings({ appearance: v })} className={`rounded-2xl border p-4 text-left font-black capitalize ${settings.appearance===v?"border-emerald-500 bg-emerald-50":"border-slate-200"}`}>{v}<span className="mt-1 block text-xs font-normal text-slate-500">{v === "system" ? "Follow device" : `${v} interface`}</span></button>)}</div>
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">{(["light","dark","system"] as const).map(v => <button key={v} onClick={() => updateSettings({ appearance: v })} className={`rounded-2xl border p-4 text-left font-black capitalize ${settings.appearance===v?"border-blue-500 bg-blue-50":"border-slate-200"}`}>{v}<span className="mt-1 block text-xs font-normal text-slate-500">{v === "system" ? "Follow device" : `${v} interface`}</span></button>)}</div>
             </section>
             <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
               <h2 className="text-xl font-black">Units & layout</h2>
@@ -2100,12 +2214,12 @@ function ProfilePage({
               </div>
               <div className="mt-5 divide-y divide-slate-100"><SettingToggle title="Show RIR" detail="Show reps-in-reserve controls during workouts." enabled={settings.showRir} onClick={()=>updateSettings({ showRir: !settings.showRir })}/><SettingToggle title="Rest timer" detail="Automatically use a rest timer between sets." enabled={settings.restTimer} onClick={()=>updateSettings({ restTimer: !settings.restTimer })}/></div>
               <div className="mt-6 flex flex-wrap items-center gap-3">
-                <button onClick={() => void saveSettingsNow()} className="rounded-2xl bg-emerald-500 px-6 py-3 font-black text-white hover:bg-emerald-400">
+                <button onClick={() => void saveSettingsNow()} className="rounded-2xl bg-blue-500 px-6 py-3 font-black text-white hover:bg-blue-400">
                   {settingsSaved ? "Settings saved ✓" : "Save settings"}
                 </button>
-                <p className="text-xs text-slate-500">Saves to this device and your Mucipes cloud account.</p>
+                <p className="text-xs text-slate-500">Saves to this device and your CYG cloud account.</p>
               </div>
-              <p className="mt-4 text-xs text-slate-500">Display preferences are shared across Mucipes and sync to your cloud account.</p>
+              <p className="mt-4 text-xs text-slate-500">Display preferences are shared across CYG and sync to your cloud account.</p>
             </section>
           </div>
         )}
@@ -2119,9 +2233,9 @@ function ProfilePage({
         {detailPage === "data" && (
           <div className="max-w-3xl space-y-5">
             <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-widest text-emerald-600">Cloud status</p><h2 className="mt-2 text-2xl font-black">Mucipes data is synced</h2><p className="mt-2 text-sm leading-6 text-slate-500">Supabase cloud storage is active, with local browser storage kept as a fast cache and fallback.</p></div><span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">Active</span></div>
+              <div className="flex items-start justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-widest text-blue-600">Cloud status</p><h2 className="mt-2 text-2xl font-black">CYG data is synced</h2><p className="mt-2 text-sm leading-6 text-slate-500">Supabase cloud storage is active, with local browser storage kept as a fast cache and fallback.</p></div><span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700">Active</span></div>
             </section>
-            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-xl font-black">Backup & restore</h2><p className="mt-2 text-sm text-slate-500">Export your Mucipes data or restore a previous Mucipes JSON backup. Import asks for confirmation before replacing matching local keys.</p><div className="mt-5 flex flex-wrap gap-3"><button onClick={exportBackup} className="rounded-2xl bg-emerald-500 px-5 py-3 font-black text-white">Download backup</button><label className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-5 py-3 font-black text-slate-700">Import backup<input type="file" accept="application/json,.json" className="hidden" onChange={(event)=>{const file=event.target.files?.[0]; if(file) void importBackup(file); event.currentTarget.value="";}} /></label></div></section>
+            <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm"><h2 className="text-xl font-black">Backup & restore</h2><p className="mt-2 text-sm text-slate-500">Export your CYG data or restore a previous CYG JSON backup. Import asks for confirmation before replacing matching local keys.</p><div className="mt-5 flex flex-wrap gap-3"><button onClick={exportBackup} className="rounded-2xl bg-blue-500 px-5 py-3 font-black text-white">Download backup</button><label className="cursor-pointer rounded-2xl border border-slate-200 bg-white px-5 py-3 font-black text-slate-700">Import backup<input type="file" accept="application/json,.json" className="hidden" onChange={(event)=>{const file=event.target.files?.[0]; if(file) void importBackup(file); event.currentTarget.value="";}} /></label></div></section>
             <section className="grid gap-3 sm:grid-cols-3"><MoreStat label="Workouts" value={trainingHistory.length}/><MoreStat label="Nutrition days" value={nutritionHistory.length}/><MoreStat label="Storage" value="Cloud + local"/></section>
             <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5"><p className="font-black text-amber-900">Safe migration</p><p className="mt-2 text-sm leading-6 text-amber-800">Internal keys still use bodypilot-* for compatibility. They are intentionally not renamed yet so existing user data is not lost.</p></section>
           </div>
@@ -2133,20 +2247,20 @@ function ProfilePage({
   return (
     <>
       <div className="flex flex-wrap items-end justify-between gap-5">
-        <div><p className="text-sm font-semibold tracking-widest text-emerald-600">MORE</p><h1 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">More</h1><p className="mt-3 max-w-2xl text-slate-600">Profile, goals, calendar, achievements, devices, settings and your data.</p></div>
-        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm"><div className="flex h-11 w-11 items-center justify-center rounded-full bg-emerald-100 font-black text-emerald-700">MP</div><div><div className="flex items-center gap-2"><p className="font-bold">Mucipes profile</p><span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${planTier === "premium" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{planTier}</span></div><p className="text-xs text-slate-500">{goalLabel} · {profile.trainingDays} days/week</p></div></div>
+        <div><p className="text-sm font-semibold tracking-widest text-blue-600">MORE</p><h1 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">More</h1><p className="mt-3 max-w-2xl text-slate-600">Profile, goals, calendar, achievements, devices, settings and your data.</p></div>
+        <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm"><div className="flex h-11 w-11 items-center justify-center rounded-full bg-blue-100 font-black text-blue-700">CYG</div><div><div className="flex items-center gap-2"><p className="font-bold">CYG profile</p><span className={`rounded-full px-2 py-0.5 text-[10px] font-black uppercase ${planTier === "premium" ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-500"}`}>{planTier}</span></div><p className="text-xs text-slate-500">{goalLabel} · {profile.trainingDays} days/week</p></div></div>
       </div>
       <section className="mt-7">
-        <div className="mb-5 rounded-[28px] border border-emerald-200 bg-emerald-50 p-5">
+        <div className="mb-5 rounded-[28px] border border-blue-200 bg-blue-50 p-5">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div><p className="text-xs font-black uppercase tracking-widest text-emerald-700">Developer plan preview</p><p className="mt-1 text-sm font-semibold text-slate-700">See Mucipes exactly as a Free or Premium user. This is a preview switch, not billing.</p></div>
+            <div><p className="text-xs font-black uppercase tracking-widest text-blue-700">Plan preview</p><p className="mt-1 text-sm font-semibold text-slate-700">See CYG exactly as a Free or Premium user. This is a preview switch, not billing.</p></div>
             <div className="flex rounded-2xl bg-white p-1 shadow-sm">
-              {(["free","premium"] as const).map((tier) => <button key={tier} type="button" onClick={() => setPlanTier(tier)} className={`rounded-xl px-4 py-2 text-sm font-black capitalize ${planTier === tier ? "bg-emerald-500 text-white" : "text-slate-500"}`}>{tier}</button>)}
+              {(["free","premium"] as const).map((tier) => <button key={tier} type="button" onClick={() => setPlanTier(tier)} className={`rounded-xl px-4 py-2 text-sm font-black capitalize ${planTier === tier ? "bg-blue-500 text-white" : "text-slate-500"}`}>{tier}</button>)}
             </div>
           </div>
         </div>
-        <div className="mb-5 rounded-[28px] bg-slate-100 px-5 py-4"><div className="flex items-center gap-3"><span className="text-xl text-slate-500">⌕</span><input value={moreSearch} onChange={(e)=>setMoreSearch(e.target.value)} placeholder="Search settings..." className="w-full bg-transparent text-base font-medium outline-none placeholder:text-slate-400"/></div></div>
-        <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">{moreItems.filter(item => `${item.title} ${item.detail}`.toLowerCase().includes(moreSearch.toLowerCase())).map((item,index,arr)=><button key={item.title} onClick={item.action} className={`flex w-full items-center gap-4 px-5 py-4 text-left transition hover:bg-slate-50 ${index<arr.length-1?"border-b border-slate-100":""}`}><span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-slate-100 text-lg font-black text-slate-800">{item.icon}</span><span className="min-w-0 flex-1"><span className="block font-black text-slate-950">{item.title}</span><span className="mt-0.5 block text-xs text-slate-500">{item.detail}</span></span><span className="text-2xl font-light text-slate-400">›</span></button>)}</div>
+        <div className="mb-5 rounded-[28px] bg-slate-100 px-5 py-4"><div className="flex items-center gap-3"><span className="text-xl text-slate-500">⌕</span><input value={moreSearch} onChange={(e)=>setMoreSearch(e.target.value)} placeholder="Search settings..." className="w-full bg-transparent text-base font-medium outline-none placeholder:text-slate-600"/></div></div>
+        <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">{moreItems.filter(item => `${item.title} ${item.detail}`.toLowerCase().includes(moreSearch.toLowerCase())).map((item,index,arr)=><button key={item.title} onClick={item.action} className={`flex w-full items-center gap-4 px-5 py-4 text-left transition hover:bg-slate-50 ${index<arr.length-1?"border-b border-slate-100":""}`}><span className="grid h-11 w-11 shrink-0 place-items-center rounded-2xl bg-slate-100 text-lg font-black text-slate-800">{item.icon}</span><span className="min-w-0 flex-1"><span className="block font-black text-slate-950">{item.title}</span><span className="mt-0.5 block text-xs text-slate-500">{item.detail}</span></span><span className="text-2xl font-light text-slate-600">›</span></button>)}</div>
       </section>
     </>
   );
@@ -2198,11 +2312,11 @@ function FastingTracker() {
   const endAt = state.active && state.startedAt ? new Date(new Date(state.startedAt).getTime()+state.targetHours*3600000) : null;
 
   return <div className="space-y-5">
-    <section className="rounded-[28px] border border-emerald-200 bg-white p-6 shadow-sm">
-    <div><p className="text-xs font-black uppercase tracking-widest text-emerald-600">Current fast</p><h3 className="mt-1 text-3xl font-black">{state.active ? `${h}h ${String(m).padStart(2,"0")}m ${String(sec).padStart(2,"0")}s` : `${state.targetHours} hour target`}</h3><p className="mt-1 text-sm text-slate-500">Cloud-synced fasting timer. {endAt ? `Target ends ${endAt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}.` : 'Choose a target and start when you are ready.'}</p></div>
-    <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{width:`${pct}%`}} /></div>
-    {!state.active && <div className="mt-5 flex flex-wrap gap-2">{[12,14,16,18,20].map(hours=><button key={hours} onClick={()=>setState(v=>({...v,targetHours:hours}))} className={`rounded-xl px-4 py-2 text-sm font-black ${state.targetHours===hours?"bg-emerald-500 text-white":"bg-slate-100 text-slate-700"}`}>{hours}h</button>)}</div>}
-    <button onClick={state.active ? finish : start} className={`mt-5 w-full rounded-2xl py-4 font-black text-white ${state.active?"bg-rose-500":"bg-emerald-500"}`}>{state.active ? "End fast" : "Start fast"}</button>
+    <section className="rounded-[28px] border border-blue-200 bg-white p-6 shadow-sm">
+    <div><p className="text-xs font-black uppercase tracking-widest text-blue-600">Current fast</p><h3 className="mt-1 text-3xl font-black">{state.active ? `${h}h ${String(m).padStart(2,"0")}m ${String(sec).padStart(2,"0")}s` : `${state.targetHours} hour target`}</h3><p className="mt-1 text-sm text-slate-500">Cloud-synced fasting timer. {endAt ? `Target ends ${endAt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}.` : 'Choose a target and start when you are ready.'}</p></div>
+    <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-500 transition-all" style={{width:`${pct}%`}} /></div>
+    {!state.active && <div className="mt-5 flex flex-wrap gap-2">{[12,14,16,18,20].map(hours=><button key={hours} onClick={()=>setState(v=>({...v,targetHours:hours}))} className={`rounded-xl px-4 py-2 text-sm font-black ${state.targetHours===hours?"bg-blue-500 text-white":"bg-slate-100 text-slate-700"}`}>{hours}h</button>)}</div>}
+    <button onClick={state.active ? finish : start} className={`mt-5 w-full rounded-2xl py-4 font-black text-white ${state.active?"bg-rose-500":"bg-blue-500"}`}>{state.active ? "End fast" : "Start fast"}</button>
     </section>
     <section className="grid gap-3 sm:grid-cols-4">
       <MoreStat label="Current streak" value={`${streak}`} />
@@ -2211,14 +2325,14 @@ function FastingTracker() {
       <MoreStat label="Longest" value={`${longest} h`} />
     </section>
     <section className="rounded-[28px] border border-slate-200 bg-white p-6 shadow-sm">
-      <div className="flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-widest text-slate-400">History</p><h3 className="mt-1 text-xl font-black">Recent fasts</h3></div><span className="text-xs font-bold text-slate-400">{state.history.length} total</span></div>
-      {state.history.length ? <div className="mt-4 space-y-2">{state.history.slice(0,12).map((x,i)=><div key={`${x.endedAt}-${i}`} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 text-sm"><div><p className="font-bold">{new Date(x.endedAt).toLocaleDateString()}</p><p className="text-xs text-slate-400">{new Date(x.startedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} → {new Date(x.endedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</p></div><span className={`font-black ${x.hours>=state.targetHours?'text-emerald-600':'text-slate-600'}`}>{x.hours} h</span></div>)}</div> : <div className="mt-4 rounded-2xl bg-slate-50 p-5 text-sm text-slate-500">Your completed fasts will appear here.</div>}
+      <div className="flex items-center justify-between"><div><p className="text-xs font-black uppercase tracking-widest text-slate-600">History</p><h3 className="mt-1 text-xl font-black">Recent fasts</h3></div><span className="text-xs font-bold text-slate-600">{state.history.length} total</span></div>
+      {state.history.length ? <div className="mt-4 space-y-2">{state.history.slice(0,12).map((x,i)=><div key={`${x.endedAt}-${i}`} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 text-sm"><div><p className="font-bold">{new Date(x.endedAt).toLocaleDateString()}</p><p className="text-xs text-slate-600">{new Date(x.startedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} → {new Date(x.endedAt).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</p></div><span className={`font-black ${x.hours>=state.targetHours?'text-blue-600':'text-slate-600'}`}>{x.hours} h</span></div>)}</div> : <div className="mt-4 rounded-2xl bg-slate-50 p-5 text-sm text-slate-500">Your completed fasts will appear here.</div>}
     </section>
   </div>;
 }
 
 function SettingToggle({ title, detail, enabled, onClick }: { title: string; detail: string; enabled: boolean; onClick: () => void }) {
-  return <div className="flex items-center justify-between gap-5 py-4"><div><p className="font-semibold">{title}</p><p className="mt-1 text-sm text-slate-500">{detail}</p></div><button type="button" onClick={onClick} aria-pressed={enabled} className={`relative h-7 w-12 shrink-0 rounded-full transition ${enabled ? 'bg-emerald-500' : 'bg-slate-200'}`}><span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition ${enabled ? 'left-6' : 'left-1'}`} /></button></div>;
+  return <div className="flex items-center justify-between gap-5 py-4"><div><p className="font-semibold">{title}</p><p className="mt-1 text-sm text-slate-500">{detail}</p></div><button type="button" onClick={onClick} aria-pressed={enabled} className={`relative h-7 w-12 shrink-0 rounded-full transition ${enabled ? 'bg-blue-500' : 'bg-slate-200'}`}><span className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-sm transition ${enabled ? 'left-6' : 'left-1'}`} /></button></div>;
 }
 
 function Dashboard({
@@ -2383,7 +2497,7 @@ function Dashboard({
     <div className="space-y-6">
       <section className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-sm font-bold uppercase tracking-[0.18em] text-emerald-600">
+          <p className="text-sm font-bold uppercase tracking-[0.18em] text-blue-600">
             Today · {dateLabel}
           </p>
           <h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950 sm:text-5xl">
@@ -2401,42 +2515,42 @@ function Dashboard({
         </div>
       </section>
 
-      <button onClick={() => setActivePage(smartFocus.page)} className="flex w-full flex-wrap items-center justify-between gap-4 rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-left transition hover:border-emerald-300">
+      <button onClick={() => setActivePage(smartFocus.page)} className="flex w-full flex-wrap items-center justify-between gap-4 rounded-3xl border border-blue-200 bg-blue-50 p-5 text-left transition hover:border-blue-300">
         <div className="min-w-0">
-          <p className="text-xs font-black uppercase tracking-widest text-emerald-700">{smartFocus.eyebrow}</p>
+          <p className="text-xs font-black uppercase tracking-widest text-blue-700">{smartFocus.eyebrow}</p>
           <p className="mt-1 text-xl font-black text-slate-950">{smartFocus.title}</p>
           <p className="mt-1 text-sm text-slate-600">{smartFocus.detail}</p>
         </div>
-        <span className="rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-white">{smartFocus.action} →</span>
+        <span className="rounded-xl bg-blue-500 px-4 py-3 text-sm font-black text-white">{smartFocus.action} →</span>
       </button>
 
       {(activeWorkout || activeFast?.active) && (
         <section className="grid gap-3 lg:grid-cols-2">
           {activeWorkout && (
-            <button onClick={() => setActivePage("training")} className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-left shadow-sm transition hover:border-emerald-300">
+            <button onClick={() => setActivePage("training")} className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-left shadow-sm transition hover:border-blue-300">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Workout in progress</p>
+                  <p className="text-xs font-black uppercase tracking-widest text-blue-700">Workout in progress</p>
                   <h2 className="mt-1 text-xl font-black text-slate-950">{activeWorkout.name || "Workout"}</h2>
                   <p className="mt-1 text-sm text-slate-600">{activeWorkout.exercises?.length ?? 0} exercises · {activeWorkout.exercises?.reduce((sum, exercise) => sum + (exercise.sets?.filter((set) => set.completed).length ?? 0), 0) ?? 0} completed sets</p>
                 </div>
-                <span className="rounded-xl bg-white px-3 py-2 text-sm font-black text-emerald-700 shadow-sm">{formatLiveDuration(liveNow - new Date(activeWorkout.startedAt).getTime())}</span>
+                <span className="rounded-xl bg-white px-3 py-2 text-sm font-black text-blue-700 shadow-sm">{liveNow - new Date(activeWorkout.startedAt).getTime() > 12 * 3600000 ? "Resume timer" : formatLiveDuration(liveNow - new Date(activeWorkout.startedAt).getTime())}</span>
               </div>
-              <span className="mt-4 inline-flex rounded-xl bg-emerald-500 px-4 py-2 text-sm font-black text-white">Resume workout →</span>
+              <span className="mt-4 inline-flex rounded-xl bg-blue-500 px-4 py-2 text-sm font-black text-white">Resume workout →</span>
             </button>
           )}
           {activeFast?.active && activeFast.startedAt && (
-            <button onClick={() => { localStorage.setItem("mucipes-more-detail-intent", "fasting"); setActivePage("profile"); }} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-emerald-300">
+            <button onClick={() => { localStorage.setItem("mucipes-more-detail-intent", "fasting"); setActivePage("profile"); }} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-blue-300">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-xs font-black uppercase tracking-widest text-emerald-600">Fast in progress</p>
+                  <p className="text-xs font-black uppercase tracking-widest text-blue-600">Fast in progress</p>
                   <h2 className="mt-1 text-xl font-black text-slate-950">{formatLiveDuration(liveNow - new Date(activeFast.startedAt).getTime())}</h2>
                   <p className="mt-1 text-sm text-slate-500">Target {activeFast.targetHours}h · ends {new Date(new Date(activeFast.startedAt).getTime() + activeFast.targetHours * 3600000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p>
                 </div>
-                <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-black text-emerald-700">Active</span>
+                <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-black text-blue-700">Active</span>
               </div>
-              <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, ((liveNow - new Date(activeFast.startedAt).getTime()) / (activeFast.targetHours * 3600000)) * 100)}%` }} /></div>
-              <span className="mt-4 inline-flex text-sm font-black text-emerald-700">Open fasting →</span>
+              <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.min(100, ((liveNow - new Date(activeFast.startedAt).getTime()) / (activeFast.targetHours * 3600000)) * 100)}%` }} /></div>
+              <span className="mt-4 inline-flex text-sm font-black text-blue-700">Open fasting →</span>
             </button>
           )}
         </section>
@@ -2444,19 +2558,19 @@ function Dashboard({
 
       <section className="grid gap-3 sm:grid-cols-3">
         <button onClick={() => setActivePage("training")} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5">
-          <p className="text-xs font-black uppercase tracking-widest text-slate-400">Readiness</p>
-          <div className="mt-3 flex items-end justify-between"><p className="text-3xl font-black">{recoveryScore}</p><span className={`rounded-full px-3 py-1 text-xs font-black ${recoveryScore>=80?"bg-emerald-100 text-emerald-700":recoveryScore>=60?"bg-amber-100 text-amber-700":"bg-rose-100 text-rose-700"}`}>{recoveryLabel}</span></div>
+          <p className="text-xs font-black uppercase tracking-widest text-slate-600">Readiness</p>
+          <div className="mt-3 flex items-end justify-between"><p className="text-3xl font-black">{recoveryScore}</p><span className={`rounded-full px-3 py-1 text-xs font-black ${recoveryScore>=80?"bg-blue-100 text-blue-700":recoveryScore>=60?"bg-amber-100 text-amber-700":"bg-rose-100 text-rose-700"}`}>{recoveryLabel}</span></div>
           <p className="mt-2 text-xs text-slate-500">Based on recent training and nutrition logging.</p>
         </button>
         <button onClick={() => setActivePage("training")} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5">
-          <p className="text-xs font-black uppercase tracking-widest text-slate-400">This week</p>
-          <p className="mt-3 text-3xl font-black">{weeklyWorkouts}<span className="text-base text-slate-400"> workouts</span></p>
+          <p className="text-xs font-black uppercase tracking-widest text-slate-600">This week</p>
+          <p className="mt-3 text-3xl font-black">{weeklyWorkouts}<span className="text-base text-slate-600"> workouts</span></p>
           <p className="mt-2 text-xs text-slate-500">Keep the week moving without overcomplicating it.</p>
         </button>
         <button onClick={() => setActivePage("nutrition")} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5">
-          <p className="text-xs font-black uppercase tracking-widest text-slate-400">Nutrition consistency</p>
-          <p className="mt-3 text-3xl font-black">{nutritionAdherence}<span className="text-base text-slate-400">%</span></p>
-          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-emerald-500" style={{width:`${nutritionAdherence}%`}} /></div>
+          <p className="text-xs font-black uppercase tracking-widest text-slate-600">Nutrition consistency</p>
+          <p className="mt-3 text-3xl font-black">{nutritionAdherence}<span className="text-base text-slate-600">%</span></p>
+          <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-500" style={{width:`${nutritionAdherence}%`}} /></div>
         </button>
       </section>
 
@@ -2467,18 +2581,18 @@ function Dashboard({
         >
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-slate-400">Calories</p>
+              <p className="text-xs font-bold uppercase tracking-widest text-slate-600">Calories</p>
               <p className="mt-2 text-3xl font-black text-slate-950">
-                {formatEnergy(caloriesEaten, displaySettings.energyUnit)} <span className="text-lg text-slate-400">/ {formatEnergy(goals.calories, displaySettings.energyUnit)}</span>
+                {formatEnergy(caloriesEaten, displaySettings.energyUnit)} <span className="text-lg text-slate-600">/ {formatEnergy(goals.calories, displaySettings.energyUnit)}</span>
               </p>
             </div>
-            <span className="rounded-xl bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-700">
+            <span className="rounded-xl bg-blue-50 px-3 py-2 text-sm font-bold text-blue-700">
               {formatEnergy(Math.max(0, caloriesRemaining), displaySettings.energyUnit)} left
             </span>
           </div>
           <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100">
             <div
-              className="h-full rounded-full bg-emerald-500"
+              className="h-full rounded-full bg-blue-500"
               style={{ width: `${Math.min(100, goals.calories ? (caloriesEaten / goals.calories) * 100 : 0)}%` }}
             />
           </div>
@@ -2491,18 +2605,18 @@ function Dashboard({
 
         <button
           onClick={() => setActivePage("training")}
-          className="rounded-3xl border border-emerald-200 bg-white p-6 text-left text-slate-950 shadow-sm transition hover:-translate-y-0.5"
+          className="rounded-3xl border border-blue-200 bg-white p-6 text-left text-slate-950 shadow-sm transition hover:-translate-y-0.5"
         >
-          <p className="text-xs font-bold uppercase tracking-widest text-emerald-400">Today's workout</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-blue-400">Today's workout</p>
           <h2 className="mt-3 text-2xl font-black">
             {lastWorkout ? "Ready for the next session?" : "Start your first workout"}
           </h2>
           <p className="mt-2 text-sm leading-6 text-slate-500">
             {lastWorkout
-              ? `Last: ${lastWorkout.name} · ${Math.round(lastWorkout.durationSeconds / 60)} min`
+              ? `Last: ${lastWorkout.name} · ${lastWorkout.id.startsWith("lyfta-") ? "~" : ""}${displayTrainingDuration(lastWorkout)} min`
               : "Build a routine or start an empty workout."}
           </p>
-          <span className="mt-6 inline-flex rounded-xl bg-emerald-400 px-4 py-3 text-sm font-black text-slate-950">
+          <span className="mt-6 inline-flex rounded-xl bg-blue-400 px-4 py-3 text-sm font-black text-white">
             Start Workout →
           </span>
         </button>
@@ -2521,8 +2635,8 @@ function Dashboard({
           detail={`${sortedWorkouts.length} workouts logged`}
           onClick={() => setActivePage("progress")}
         />
-        <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5">
-          <p className="text-xs font-bold uppercase tracking-widest text-emerald-700">Mucipes Coach</p>
+        <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5">
+          <p className="text-xs font-bold uppercase tracking-widest text-blue-700">CYG Coach</p>
           <p className="mt-3 text-lg font-black text-slate-950">{insight}</p>
           <p className="mt-2 text-sm text-slate-600">Based on today's logged data.</p>
         </div>
@@ -2531,10 +2645,10 @@ function Dashboard({
       <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-xs font-black uppercase tracking-widest text-emerald-600">Weekly summary</p>
+            <p className="text-xs font-black uppercase tracking-widest text-blue-600">Weekly summary</p>
             <h2 className="mt-1 text-xl font-black text-slate-950">The signals that matter</h2>
           </div>
-          <span className="text-xs font-bold text-slate-400">Last 7 days</span>
+          <span className="text-xs font-bold text-slate-600">Last 7 days</span>
         </div>
         <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-5">
           <WeeklySummaryStat label="Workouts" value={`${weeklyWorkouts}/${bodyProfile.trainingDays}`} />
@@ -2550,7 +2664,7 @@ function Dashboard({
 }
 
 function WeeklySummaryStat({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase tracking-wider text-slate-400">{label}</p><p className="mt-1 text-lg font-black text-slate-900">{value}</p></div>;
+  return <div className="rounded-2xl bg-slate-50 p-3"><p className="text-[10px] font-black uppercase tracking-wider text-slate-600">{label}</p><p className="mt-1 text-lg font-black text-slate-900">{value}</p></div>;
 }
 
 function TodayMacro({ label, value, goal }: { label: string; value: number; goal: number }) {
@@ -2559,10 +2673,10 @@ function TodayMacro({ label, value, goal }: { label: string; value: number; goal
     <div>
       <div className="flex items-center justify-between gap-2 text-xs">
         <span className="font-bold text-slate-700">{label}</span>
-        <span className="text-slate-400">{Math.round(value)}/{goal}g</span>
+        <span className="text-slate-600">{Math.round(value)}/{goal}g</span>
       </div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100">
-        <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+        <div className="h-full rounded-full bg-blue-500" style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -2575,7 +2689,7 @@ function TodayInfoCard({
 }) {
   return (
     <button onClick={onClick} className="rounded-3xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:shadow-md">
-      <p className="text-xs font-bold uppercase tracking-widest text-slate-400">{label}</p>
+      <p className="text-xs font-bold uppercase tracking-widest text-slate-600">{label}</p>
       <p className="mt-2 text-2xl font-black text-slate-950">{value}</p>
       <p className="mt-1 text-sm text-slate-500">{detail}</p>
     </button>
@@ -2600,7 +2714,7 @@ function DashboardMetric({
       <p className="text-sm text-slate-500">{label}</p>
       <p className="mt-2 text-2xl font-bold">
         {value}
-        <span className="ml-2 text-sm font-normal text-slate-400">
+        <span className="ml-2 text-sm font-normal text-slate-600">
           {detail}
         </span>
       </p>
@@ -2654,7 +2768,7 @@ function MiniWeightTrend({
           points={points}
           fill="none"
           stroke="currentColor"
-          className="text-emerald-600"
+          className="text-blue-600"
           strokeWidth="4"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -2820,7 +2934,7 @@ function GetFitPlan({
       setPlanSavedToTraining(true);
     } catch (error) {
       console.error(
-        "Could not save Mucipes training plan:",
+        "Could not save CYG training plan:",
         error
       );
     }
@@ -2882,7 +2996,7 @@ function GetFitPlan({
 
   return (
     <>
-      <p className="text-sm font-semibold tracking-widest text-emerald-600">
+      <p className="text-sm font-semibold tracking-widest text-blue-600">
         GET FIT PLAN
       </p>
 
@@ -2891,15 +3005,15 @@ function GetFitPlan({
       </h1>
 
       <p className="mt-3 max-w-3xl text-slate-600">
-        Mucipes estimates your maintenance calories from your body
+        CYG estimates your maintenance calories from your body
         data and activity, then adjusts calories and macros for your
         selected goal. You can still edit the targets later.
       </p>
 
       <section className="mt-7 grid gap-3 sm:grid-cols-3">
-        <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-slate-950"><p className="text-xs font-black uppercase tracking-widest text-emerald-400">Plan status</p><p className="mt-2 text-2xl font-black">{planStatus}</p><p className="mt-2 text-xs text-slate-400">Mucipes uses your logged trend before suggesting changes.</p></div>
-        <div className="rounded-3xl border border-slate-200 bg-white p-5"><p className="text-xs font-black uppercase tracking-widest text-slate-400">Consistency</p><p className="mt-2 text-3xl font-black">{planCompletion}%</p><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full bg-emerald-500" style={{width:`${planCompletion}%`}} /></div></div>
-        <div className="rounded-3xl border border-slate-200 bg-white p-5"><p className="text-xs font-black uppercase tracking-widest text-slate-400">Current target</p><p className="mt-2 text-3xl font-black">{formatEnergy(goals.calories, displaySettings.energyUnit)}</p><p className="mt-2 text-xs text-slate-500">{goals.protein} g protein · {profile.trainingDays} training days</p></div>
+        <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-slate-950"><p className="text-xs font-black uppercase tracking-widest text-blue-400">Plan status</p><p className="mt-2 text-2xl font-black">{planStatus}</p><p className="mt-2 text-xs text-slate-600">CYG uses your logged trend before suggesting changes.</p></div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5"><p className="text-xs font-black uppercase tracking-widest text-slate-600">Consistency</p><p className="mt-2 text-3xl font-black">{planCompletion}%</p><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full bg-blue-500" style={{width:`${planCompletion}%`}} /></div></div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5"><p className="text-xs font-black uppercase tracking-widest text-slate-600">Current target</p><p className="mt-2 text-3xl font-black">{formatEnergy(goals.calories, displaySettings.energyUnit)}</p><p className="mt-2 text-xs text-slate-500">{goals.protein} g protein · {profile.trainingDays} training days</p></div>
       </section>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
@@ -3032,7 +3146,7 @@ function GetFitPlan({
                         }}
                         className={`rounded-xl border px-4 py-2 text-sm font-semibold transition ${
                           selected
-                            ? "border-emerald-500 bg-emerald-500 text-black"
+                            ? "border-blue-500 bg-blue-500 text-white"
                             : "border-slate-300 bg-slate-50 text-slate-600 hover:border-slate-400"
                         }`}
                       >
@@ -3042,8 +3156,8 @@ function GetFitPlan({
                   }
                 )}
               </div>
-              <p className="mt-2 text-xs text-slate-400">
-                Pick up to {draft.trainingDays} days. Mucipes uses these first
+              <p className="mt-2 text-xs text-slate-600">
+                Pick up to {draft.trainingDays} days. CYG uses these first
                 and fills any missing days automatically.
               </p>
             </div>
@@ -3166,18 +3280,18 @@ function GetFitPlan({
 
           <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm leading-6 text-slate-600">
             Activity level matters a lot for the calorie estimate.
-            Mucipes uses this as a starting estimate; later we can
+            CYG uses this as a starting estimate; later we can
             make it adaptive from your real weight trend and intake.
           </div>
         </section>
 
-        <section className="rounded-3xl border border-emerald-200 bg-white p-7 shadow-sm">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600">
+        <section className="rounded-3xl border border-blue-200 bg-white p-7 shadow-sm">
+          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-600">
             Estimated targets
           </p>
 
           <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
-            <p className="text-xs uppercase tracking-wider text-slate-400">
+            <p className="text-xs uppercase tracking-wider text-slate-600">
               Body-weight goal
             </p>
             <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
@@ -3203,11 +3317,11 @@ function GetFitPlan({
             />
           </div>
 
-          <div className="mt-5 rounded-3xl border border-emerald-500/20 bg-white p-6">
+          <div className="mt-5 rounded-3xl border border-blue-500/20 bg-white p-6">
             <p className="text-sm text-slate-500">
               Daily calorie target
             </p>
-            <p className="mt-2 text-5xl font-black text-emerald-600">
+            <p className="mt-2 text-5xl font-black text-blue-600">
               {energyDisplay(result.calories, displaySettings.energyUnit).toLocaleString()}
             </p>
             <p className="mt-1 text-sm text-slate-500">
@@ -3224,23 +3338,31 @@ function GetFitPlan({
           <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-5">
             <p className="font-semibold">How it is calculated</p>
             <p className="mt-2 text-sm leading-6 text-slate-500">
-              BMR uses the Mifflin-St Jeor equation. Maintenance is
-              BMR multiplied by the selected activity factor. Goal
-              calories are adjusted from maintenance. Protein and fat
-              receive minimum targets first, and remaining calories
-              are assigned to carbohydrates.
+              Your resting energy (BMR) comes from the Mifflin-St Jeor equation.
+              CYG multiplies it by your selected activity level to estimate maintenance.
+              The activity factor covers everyday movement, planned exercise and the
+              thermic effect of food together. These parts are not measured separately;
+              the split below illustrates how the maintenance estimate adds up.
             </p>
+            <div className="mt-3 space-y-1 text-sm text-slate-600">
+              <p>Resting energy: {formatEnergy(result.bmr, displaySettings.energyUnit)}</p>
+              <p>Everyday activity and sport (combined estimate): {formatEnergy(Math.max(0, result.maintenance - result.bmr - Math.round(result.maintenance * 0.1)), displaySettings.energyUnit)}</p>
+              <p>Thermic effect of food (illustrative 10%): {formatEnergy(Math.round(result.maintenance * 0.1), displaySettings.energyUnit)}</p>
+              <p className="font-bold">Estimated maintenance total: {formatEnergy(result.maintenance, displaySettings.energyUnit)}</p>
+              <p>Goal adjustment: {formatEnergy(result.calories - result.maintenance, displaySettings.energyUnit)} → daily target {formatEnergy(result.calories, displaySettings.energyUnit)}</p>
+            </div>
+            <p className="mt-2 text-xs text-slate-500">Logged workouts are already represented by your chosen activity level; they are not added again to this plan estimate. Protein and fat are set first, with the remaining calories assigned to carbohydrates.</p>
           </div>
 
           <button
             onClick={applyPlan}
-            className="mt-6 w-full rounded-xl bg-emerald-500 py-4 text-lg font-bold text-black transition hover:bg-emerald-400"
+            className="mt-6 w-full rounded-xl bg-blue-500 py-4 text-lg font-bold text-white transition hover:bg-blue-400"
           >
             Apply these targets
           </button>
 
           {calculated && (
-            <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-500">
+            <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm text-blue-500">
               Plan applied. Your Nutrition and Dashboard targets are
               now updated.
               <button
@@ -3252,9 +3374,9 @@ function GetFitPlan({
             </div>
           )}
 
-          <p className="mt-4 text-xs leading-5 text-slate-400">
+          <p className="mt-4 text-xs leading-5 text-slate-600">
             These are estimates, not medical or dietetic advice.
-            Real maintenance can differ, so future Mucipes versions
+            Real maintenance can differ, so future CYG versions
             should adjust the plan from actual weight trends.
           </p>
         </section>
@@ -3263,14 +3385,14 @@ function GetFitPlan({
       <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-600">
               Weekly Schedule
             </p>
             <h2 className="mt-2 text-2xl font-bold">
               Strength + cardio together
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Mucipes spreads strength and cardio across the week and tries
+              CYG spreads strength and cardio across the week and tries
               to avoid placing harder cardio directly before lower-body training.
             </p>
           </div>
@@ -3282,7 +3404,7 @@ function GetFitPlan({
               key={day.day}
               className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
             >
-              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-600">
                 {day.day}
               </p>
 
@@ -3326,7 +3448,7 @@ function GetFitPlan({
       <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-600">
               Training Plan
             </p>
             <h2 className="mt-2 text-2xl font-bold">
@@ -3338,7 +3460,7 @@ function GetFitPlan({
             </p>
           </div>
 
-          <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-500">
+          <span className="rounded-full border border-blue-500/20 bg-blue-500/10 px-4 py-2 text-xs font-semibold text-blue-500">
             {draft.experience ?? "intermediate"} · {(draft.equipment ?? "full-gym").replace("-", " ")}
           </span>
         </div>
@@ -3351,7 +3473,7 @@ function GetFitPlan({
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-blue-600">
                     Day {index + 1}
                   </p>
                   <h3 className="mt-1 text-xl font-bold">{day.name}</h3>
@@ -3393,7 +3515,7 @@ function GetFitPlan({
         <div className="mt-5 flex flex-wrap gap-3">
           <button
             onClick={saveTrainingPlanToTraining}
-            className="rounded-xl bg-emerald-500 px-5 py-3 font-bold text-black transition hover:bg-emerald-400"
+            className="rounded-xl bg-blue-500 px-5 py-3 font-bold text-white transition hover:bg-blue-400"
           >
             Save plan to Training
           </button>
@@ -3407,7 +3529,7 @@ function GetFitPlan({
         </div>
 
         {planSavedToTraining && (
-          <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4 text-sm text-emerald-500">
+          <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm text-blue-500">
             Training plan saved. Open Training → Saved Workouts to use it.
           </div>
         )}
@@ -3416,7 +3538,7 @@ function GetFitPlan({
       <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-600">
               Nutrition History
             </p>
             <h2 className="mt-2 text-2xl font-bold">
@@ -3461,7 +3583,7 @@ function GetFitPlan({
                 {recentNutrition.calories - goals.calories > 0 ? "+" : ""}
                 {formatEnergy(recentNutrition.calories - goals.calories, displaySettings.energyUnit)}/day
               </p>
-              <p className="mt-1 text-xs text-slate-400">
+              <p className="mt-1 text-xs text-slate-600">
                 Difference between your logged average and current target.
               </p>
             </div>
@@ -3470,7 +3592,7 @@ function GetFitPlan({
           <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6">
             <p className="font-semibold">No completed nutrition days yet.</p>
             <p className="mt-2 text-sm text-slate-500">
-              Mucipes now saves a daily nutrition snapshot automatically.
+              CYG now saves a daily nutrition snapshot automatically.
               Tomorrow, today's totals will become your first completed day.
             </p>
           </div>
@@ -3480,14 +3602,14 @@ function GetFitPlan({
       <section className="mt-6 rounded-3xl border border-slate-200 bg-white p-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-emerald-600">
-              Adaptive Mucipes
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-600">
+              Adaptive CYG
             </p>
             <h2 className="mt-2 text-2xl font-bold">
               Weight-trend check-in
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Mucipes compares your recent weight trend with the weekly
+              CYG compares your recent weight trend with the weekly
               rate selected in your Get Fit Plan. It only suggests a small
               calorie change; you decide whether to apply it.
             </p>
@@ -3495,7 +3617,7 @@ function GetFitPlan({
 
           <span className={`rounded-full border px-4 py-2 text-xs font-semibold ${
             adaptive.ready
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
+              ? "border-blue-500/30 bg-blue-500/10 text-blue-500"
               : "border-slate-300 bg-slate-50 text-slate-600"
           }`}>
             {adaptive.ready ? "Analysis ready" : "Collecting data"}
@@ -3509,7 +3631,7 @@ function GetFitPlan({
             </p>
             <p className="mt-2 text-sm text-slate-500">
               Add body-weight measurements in Progress. For a useful trend,
-              Mucipes needs at least 4 measurements spanning at least 7 days.
+              CYG needs at least 4 measurements spanning at least 7 days.
             </p>
             <button
               onClick={() => setActivePage("progress")}
@@ -3533,9 +3655,9 @@ function GetFitPlan({
               />
             </div>
 
-            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-6">
-              <p className="text-sm font-semibold text-emerald-500">
-                Mucipes recommendation
+            <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-6">
+              <p className="text-sm font-semibold text-blue-500">
+                CYG recommendation
               </p>
               <p className="mt-3 text-xl font-bold">
                 {adaptive.suggestedCalories !== null && adaptive.suggestedCalories !== goals.calories
@@ -3550,7 +3672,7 @@ function GetFitPlan({
                 adaptive.ready &&
                 adaptive.observedRate !== null && (
                   <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="text-xs uppercase tracking-wider text-slate-400">
+                    <p className="text-xs uppercase tracking-wider text-slate-600">
                       Estimated real maintenance
                     </p>
                     <p className="mt-2 text-xl font-bold">
@@ -3559,7 +3681,7 @@ function GetFitPlan({
                         displaySettings.energyUnit
                       )}/day
                     </p>
-                    <p className="mt-1 text-xs text-slate-400">
+                    <p className="mt-1 text-xs text-slate-600">
                       Early estimate from logged intake and recent weight trend.
                       Accuracy improves with consistent logging.
                     </p>
@@ -3578,7 +3700,7 @@ function GetFitPlan({
 
                     <button
                       onClick={applyAdaptiveAdjustment}
-                      className="rounded-xl bg-emerald-500 px-5 py-3 font-bold text-black transition hover:bg-emerald-400"
+                      className="rounded-xl bg-blue-500 px-5 py-3 font-bold text-white transition hover:bg-blue-400"
                     >
                       Apply adjustment
                     </button>
@@ -3588,8 +3710,8 @@ function GetFitPlan({
           </div>
         )}
 
-        <p className="mt-5 text-xs leading-5 text-slate-400">
-          Mucipes uses your weight trend together with completed nutrition-day history.
+        <p className="mt-5 text-xs leading-5 text-slate-600">
+          CYG uses your weight trend together with completed nutrition-day history.
           More consistent logging makes the recommendation more representative.
         </p>
       </section>
@@ -3697,7 +3819,7 @@ function getCardioGuidance(profile: BodyProfile) {
   }
 
   if (goal === "performance") {
-    return "Combine easy aerobic work with one quality session. Mucipes keeps harder cardio away from lower-body sessions where possible to reduce interference.";
+    return "Combine easy aerobic work with one quality session. CYG keeps harder cardio away from lower-body sessions where possible to reduce interference.";
   }
 
   return "Use mostly easy Zone 2-style cardio for general fitness and recovery. You should finish with more in the tank rather than exhausted.";
@@ -3713,6 +3835,23 @@ function buildWeeklySchedule(
     items: [],
   }));
 
+  // A saved/preferred-day list may be stale or arrive out of order. Always keep
+  // Push/Pull/Legs together in that cycle before assigning workouts to dates.
+  const splitFamily = (name: string) => {
+    const value = name.toLowerCase();
+    if (value.startsWith("push")) return 0;
+    if (value.startsWith("pull")) return 1;
+    if (value.startsWith("leg") || value.startsWith("lower")) return 2;
+    return -1;
+  };
+  const isPpl = trainingPlan.length >= 3 && trainingPlan.every(day => splitFamily(day.name) >= 0);
+  const orderedPlan = isPpl
+    ? [...trainingPlan].sort((a, b) => {
+        const variant = (name: string) => /(?:\bB\b|\b2\b)/i.test(name) ? 1 : 0;
+        return variant(a.name) - variant(b.name) || splitFamily(a.name) - splitFamily(b.name);
+      })
+    : trainingPlan;
+
   const strengthSlots: Record<number, number[]> = {
     2: [0, 3],
     3: [0, 2, 4],
@@ -3722,19 +3861,20 @@ function buildWeeklySchedule(
   };
 
   const fallbackSlots =
-    strengthSlots[Math.min(6, Math.max(2, trainingPlan.length))] ??
+    strengthSlots[Math.min(6, Math.max(2, orderedPlan.length))] ??
     strengthSlots[4];
 
   const preferred = Array.isArray(profile.preferredTrainingDays)
     ? [...new Set(profile.preferredTrainingDays)]
         .filter((day) => day >= 0 && day <= 6)
-        .slice(0, trainingPlan.length)
+        .sort((a, b) => a - b)
+        .slice(0, orderedPlan.length)
     : [];
 
   const slots = [...preferred];
 
   for (const fallback of fallbackSlots) {
-    if (slots.length >= trainingPlan.length) {
+    if (slots.length >= orderedPlan.length) {
       break;
     }
 
@@ -3743,13 +3883,13 @@ function buildWeeklySchedule(
     }
   }
 
-  for (let day = 0; day < 7 && slots.length < trainingPlan.length; day++) {
+  for (let day = 0; day < 7 && slots.length < orderedPlan.length; day++) {
     if (!slots.includes(day)) {
       slots.push(day);
     }
   }
 
-  trainingPlan.forEach((trainingDay, index) => {
+  orderedPlan.forEach((trainingDay, index) => {
     const slot = slots[index] ?? index;
 
     if (week[slot]) {
@@ -3771,7 +3911,7 @@ function buildWeeklySchedule(
 
   const lowerBodyDays = new Set<number>();
 
-  trainingPlan.forEach((trainingDay, index) => {
+  orderedPlan.forEach((trainingDay, index) => {
     const slot = slots[index] ?? index;
     const lowerName = trainingDay.name.toLowerCase();
 
@@ -4079,16 +4219,18 @@ function buildTrainingPlan(
   }
 
   if (days === 5) {
-    return [push, pull, legs, upper, lower];
+    // A five-session week continues the PPL sequence; cardio is scheduled
+    // separately by buildWeeklySchedule so the split remains predictable.
+    return [push, pull, legs, { ...push, name: "Push B", exercises: uniqueExercises([ex(inclinePress, "6–10"), ex(chestPress, "8–12"), ex(shoulderPress, "8–12"), ex(lateralRaise, "12–15"), ex(triceps, "8–15")]) }, { ...pull, name: "Pull B", exercises: uniqueExercises([ex(row, "6–10"), ex(verticalPull, "8–12"), ex(gym ? "Single Arm Cable Row" : row, "8–12"), ex(gym ? "Rear Delt Fly Machine" : lateralRaise, "12–15"), ex(biceps, "8–15")]) }];
   }
 
   return [
     push,
     pull,
     legs,
-    { ...push, name: "Push 2" },
-    { ...pull, name: "Pull 2" },
-    { ...legs, name: "Legs 2" },
+    { ...push, name: "Push B", exercises: uniqueExercises([ex(inclinePress, "6–10"), ex(chestPress, "8–12"), ex(shoulderPress, "8–12"), ex(lateralRaise, "12–15"), ex(triceps, "8–15")]) },
+    { ...pull, name: "Pull B", exercises: uniqueExercises([ex(row, "6–10"), ex(verticalPull, "8–12"), ex(gym ? "Single Arm Cable Row" : row, "8–12"), ex(gym ? "Rear Delt Fly Machine" : lateralRaise, "12–15"), ex(biceps, "8–15")]) },
+    { ...legs, name: "Legs B", exercises: uniqueExercises([ex(quad, "6–10"), ex(hinge, "8–12"), ex(squat, "8–12"), ex(hamstring, "10–15"), ex(calves, "12–15")]) },
   ];
 }
 
@@ -4274,15 +4416,15 @@ function calculateAdaptiveAdjustment(
     explanation:
       profile.goal === "lose"
         ? calorieAdjustment < 0
-          ? "Your recent weight loss is slower than the selected target, so Mucipes suggests a small reduction rather than a large jump."
-          : "Your recent weight loss is faster than the selected target, so Mucipes suggests adding a small amount of food."
+          ? "Your recent weight loss is slower than the selected target, so CYG suggests a small reduction rather than a large jump."
+          : "Your recent weight loss is faster than the selected target, so CYG suggests adding a small amount of food."
         : profile.goal === "gain"
           ? calorieAdjustment > 0
-            ? "Your recent weight gain is slower than the selected target, so Mucipes suggests a small calorie increase."
-            : "Your recent weight gain is faster than the selected target, so Mucipes suggests a small calorie reduction."
+            ? "Your recent weight gain is slower than the selected target, so CYG suggests a small calorie increase."
+            : "Your recent weight gain is faster than the selected target, so CYG suggests a small calorie reduction."
           : calorieAdjustment > 0
-            ? "Your weight is trending down while your goal is maintenance, so Mucipes suggests a small calorie increase."
-            : "Your weight is trending up while your goal is maintenance, so Mucipes suggests a small calorie reduction.",
+            ? "Your weight is trending down while your goal is maintenance, so CYG suggests a small calorie increase."
+            : "Your weight is trending up while your goal is maintenance, so CYG suggests a small calorie reduction.",
   };
 }
 
@@ -4387,21 +4529,34 @@ function PlanNumber({
   step?: number;
   onChange: (value: number) => void;
 }) {
+  const [draft, setDraft] = useState(() => String(value));
+  const [editing, setEditing] = useState(false);
+  useEffect(() => {
+    if (!editing) setDraft(String(value));
+  }, [value, editing]);
   return (
     <label>
       <span className="mb-2 block text-sm text-slate-600">
         {label}
       </span>
-      <div className="flex items-center rounded-xl border border-slate-300 bg-slate-50 focus-within:border-emerald-500">
+      <div className="flex items-center rounded-xl border border-slate-300 bg-slate-50 focus-within:border-blue-500">
         <input
           type="number"
-          value={value}
+          value={editing ? draft : String(value)}
           min={min}
           max={max}
           step={step}
-          onChange={(event) =>
-            onChange(Number(event.target.value))
-          }
+          onFocus={() => setEditing(true)}
+          onChange={(event) => {
+            const next = event.target.value;
+            setDraft(next);
+            if (next !== "" && Number.isFinite(Number(next))) onChange(Number(next));
+          }}
+          onBlur={() => {
+            setEditing(false);
+            const parsed = Number(draft);
+            if (draft !== "" && Number.isFinite(parsed)) onChange(Math.min(max, Math.max(min, parsed)));
+          }}
           className="w-full bg-transparent p-4 outline-none"
         />
         <span className="pr-4 text-sm text-slate-500">
@@ -4431,7 +4586,7 @@ function PlanSelect({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-xl border border-slate-300 bg-slate-50 p-4 outline-none focus:border-emerald-500"
+        className="w-full rounded-xl border border-slate-300 bg-slate-50 p-4 outline-none focus:border-blue-500"
       >
         {options.map(([optionValue, optionLabel]) => (
           <option key={optionValue} value={optionValue}>
@@ -4454,11 +4609,11 @@ function PlanResult({
 }) {
   return (
     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-      <p className="text-xs uppercase tracking-wider text-slate-400">
+      <p className="text-xs uppercase tracking-wider text-slate-600">
         {label}
       </p>
       <p className="mt-2 text-xl font-bold">{value}</p>
-      <p className="mt-1 text-xs text-slate-400">{detail}</p>
+      <p className="mt-1 text-xs text-slate-600">{detail}</p>
     </div>
   );
 }
@@ -4769,7 +4924,7 @@ return (
     <>
       <div className="flex flex-wrap items-center justify-between gap-5">
         <div>
-          <p className="text-sm font-semibold tracking-widest text-emerald-600">
+          <p className="text-sm font-semibold tracking-widest text-blue-600">
             NUTRITION
           </p>
 
@@ -4791,7 +4946,7 @@ return (
                 !showNewMeal
               )
             }
-            className="rounded-xl bg-emerald-500 px-5 py-3 font-semibold text-black transition hover:bg-emerald-400"
+            className="rounded-xl bg-blue-500 px-5 py-3 font-semibold text-white transition hover:bg-blue-400"
           >
             + New meal
           </button>
@@ -4822,7 +4977,7 @@ return (
       />
 
       {showNewMeal && (
-        <section className="mt-6 rounded-3xl border border-emerald-500/30 bg-white p-6">
+        <section className="mt-6 rounded-3xl border border-blue-500/30 bg-white p-6">
                   <h2 className="text-xl font-semibold">
             Create a meal
           </h2>
@@ -4858,14 +5013,14 @@ return (
                 }
               }}
               placeholder="Meal name"
-              className="flex-1 rounded-xl border border-slate-300 bg-slate-50 p-4 outline-none focus:border-emerald-500"
+              className="flex-1 rounded-xl border border-slate-300 bg-slate-50 p-4 outline-none focus:border-blue-500"
             />
 
             <button
               onClick={
                 createMeal
               }
-              className="rounded-xl bg-emerald-500 px-6 font-semibold text-black"
+              className="rounded-xl bg-blue-500 px-6 font-semibold text-white"
             >
               Create
             </button>
@@ -4874,7 +5029,7 @@ return (
       )}
 
       {showGoals && (
-        <section className="mt-8 rounded-3xl border border-emerald-500/30 bg-white p-7">
+        <section className="mt-8 rounded-3xl border border-blue-500/30 bg-white p-7">
           <h2 className="text-2xl font-semibold">
             Daily goals
           </h2>
@@ -4921,7 +5076,7 @@ return (
             onClick={
               saveGoals
             }
-            className="mt-6 rounded-xl bg-emerald-500 px-6 py-3 font-semibold text-black"
+            className="mt-6 rounded-xl bg-blue-500 px-6 py-3 font-semibold text-white"
           >
             Save goals
           </button>
@@ -5004,7 +5159,7 @@ return (
               <p className="text-xs font-bold uppercase tracking-widest text-sky-600">Water</p>
               <p className="mt-1 text-2xl font-black">{(waterMl / 1000).toFixed(1)} L</p>
             </div>
-            <span className="text-sm text-slate-400">Goal 3.0 L</span>
+            <span className="text-sm text-slate-600">Goal 3.0 L</span>
           </div>
           <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
             <div className="h-full rounded-full bg-sky-500" style={{width:`${Math.min(100,(waterMl/3000)*100)}%`}} />
@@ -5019,14 +5174,14 @@ return (
         </div>
 
         <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-widest text-emerald-600">Saved meals</p>
+          <p className="text-xs font-bold uppercase tracking-widest text-blue-600">Saved meals</p>
           <div className="mt-3 space-y-2">
             {savedMeals.slice(-2).map((meal) => (
               <button key={meal.id} onClick={() => addSavedMeal(meal)} className="flex w-full items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-left text-sm font-bold">
-                <span>{meal.name}</span><span className="text-emerald-600">+ Add</span>
+                <span>{meal.name}</span><span className="text-blue-600">+ Add</span>
               </button>
             ))}
-            {savedMeals.length === 0 && <p className="text-sm text-slate-400">Save your current diary as a reusable meal.</p>}
+            {savedMeals.length === 0 && <p className="text-sm text-slate-600">Save your current diary as a reusable meal.</p>}
           </div>
           <button onClick={saveMealFromDiary} className="mt-4 w-full rounded-xl border border-slate-200 py-2 text-sm font-bold">Save current foods</button>
         </div>
@@ -5036,11 +5191,11 @@ return (
           <div className="mt-3 space-y-2">
             {recipes.slice(-2).map((recipe) => (
               <button key={recipe.id} onClick={() => addRecipe(recipe)} className="flex w-full items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-left text-sm font-bold">
-                <span>{recipe.name} <span className="font-normal text-slate-400">/ serving</span></span>
+                <span>{recipe.name} <span className="font-normal text-slate-600">/ serving</span></span>
                 <span className="text-violet-600">+ Add</span>
               </button>
             ))}
-            {recipes.length === 0 && <p className="text-sm text-slate-400">Create a reusable recipe from logged foods.</p>}
+            {recipes.length === 0 && <p className="text-sm text-slate-600">Create a reusable recipe from logged foods.</p>}
           </div>
           <button onClick={createRecipeFromDiary} className="mt-4 w-full rounded-xl border border-slate-200 py-2 text-sm font-bold">Create recipe</button>
         </div>
@@ -5068,7 +5223,7 @@ return (
       </div>
 
       {diaryMessage && (
-        <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">
+        <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-semibold text-blue-700">
           {diaryMessage}
         </div>
       )}
@@ -5118,7 +5273,7 @@ return (
             !showOptimizer
           )
         }
-        className="mt-8 w-full rounded-2xl bg-emerald-500 p-5 text-lg font-bold text-black transition hover:bg-emerald-400"
+        className="mt-8 w-full rounded-2xl bg-blue-500 p-5 text-lg font-bold text-white transition hover:bg-blue-400"
       >
         {showOptimizer
           ? "Hide meal suggestion"
@@ -5180,7 +5335,7 @@ return (
       <section className="mt-8 rounded-3xl border border-slate-200 bg-white p-7">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-emerald-600">
+            <p className="text-xs font-semibold uppercase tracking-widest text-blue-600">
               History
             </p>
             <h2 className="mt-2 text-2xl font-bold">
@@ -5194,7 +5349,7 @@ return (
 
         <div className="mt-6 overflow-x-auto">
           <div className="min-w-[620px]">
-            <div className="grid grid-cols-5 border-b border-slate-200 pb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+            <div className="grid grid-cols-5 border-b border-slate-200 pb-3 text-xs font-semibold uppercase tracking-wider text-slate-600">
               <span>Date</span>
               <span>Calories</span>
               <span>Protein</span>
@@ -5612,7 +5767,7 @@ function Progress({
       <section className="mb-6 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-xs font-bold uppercase tracking-widest text-emerald-600">Progress 2.0</p>
+            <p className="text-xs font-bold uppercase tracking-widest text-blue-600">Progress 2.0</p>
             <h2 className="mt-1 text-2xl font-black">Your performance</h2>
           </div>
           <div className="flex rounded-xl bg-slate-100 p-1">
@@ -5630,12 +5785,12 @@ function Progress({
           <ProgressMini label="Measurements" value={measurements.length} />
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
-          <button onClick={()=>setActiveProgressTab("weight")} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold hover:border-emerald-300 hover:bg-emerald-50">+ Log weight</button>
-          <button onClick={()=>setActiveProgressTab("body")} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold hover:border-emerald-300 hover:bg-emerald-50">Body check-in</button>
+          <button onClick={()=>setActiveProgressTab("weight")} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold hover:border-blue-300 hover:bg-blue-50">+ Log weight</button>
+          <button onClick={()=>setActiveProgressTab("body")} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold hover:border-blue-300 hover:bg-blue-50">Body check-in</button>
         </div>
       </section>
 
-      <p className="text-sm font-semibold tracking-widest text-emerald-600">
+      <p className="text-sm font-semibold tracking-widest text-blue-600">
         PROGRESS
       </p>
 
@@ -5659,7 +5814,7 @@ function Progress({
       {activeProgressTab === "overview" && (
         <div className="grid gap-5 lg:grid-cols-[1.1fr_.9fr]">
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-widest text-emerald-600">Progress overview</p>
+            <p className="text-xs font-black uppercase tracking-widest text-blue-600">Progress overview</p>
             <h2 className="mt-2 text-2xl font-black">Your trend, not one data point</h2>
             <div className="mt-6 grid grid-cols-2 gap-3">
               <ProgressMini label="Weight logs" value={sortedWeightEntries.length} />
@@ -5667,10 +5822,10 @@ function Progress({
               <ProgressMini label="Measurements" value={measurements.length} />
               <ProgressMini label="Photos" value={progressPhotos.length} />
             </div>
-            <button onClick={()=>setActiveProgressTab("weight")} className="mt-5 rounded-xl bg-emerald-500 px-5 py-3 text-sm font-black text-white">Open weight trend →</button>
+            <button onClick={()=>setActiveProgressTab("weight")} className="mt-5 rounded-xl bg-blue-500 px-5 py-3 text-sm font-black text-white">Open weight trend →</button>
           </section>
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-widest text-slate-400">Latest check-in</p>
+            <p className="text-xs font-black uppercase tracking-widest text-slate-600">Latest check-in</p>
             <p className="mt-3 text-3xl font-black">{sortedWeightEntries.at(-1) ? formatWeight(sortedWeightEntries.at(-1)!.weight, displaySettings.units) : "—"}</p>
             <p className="mt-2 text-sm text-slate-500">Use 7 / 30 / 90 day views to judge the direction instead of daily noise.</p>
           </section>
@@ -5680,13 +5835,13 @@ function Progress({
       {activeProgressTab === "body" && (
         <div className="grid gap-5 lg:grid-cols-[.8fr_1.2fr]">
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <p className="text-xs font-black uppercase tracking-widest text-emerald-600">Body measurements</p>
+            <p className="text-xs font-black uppercase tracking-widest text-blue-600">Body measurements</p>
             <h2 className="mt-2 text-2xl font-black">Check-in</h2>
-            <button onClick={addMeasurementQuick} className="mt-5 w-full rounded-xl bg-emerald-500 py-3 text-sm font-black text-white">+ Add measurements</button>
+            <button onClick={addMeasurementQuick} className="mt-5 w-full rounded-xl bg-blue-500 py-3 text-sm font-black text-white">+ Add measurements</button>
             <div className="mt-5 space-y-2">{measurements.slice(-4).reverse().map((m,i)=><div key={`${m.date}-${i}`} className="rounded-2xl bg-slate-50 p-3 text-sm"><p className="font-black">{m.date}</p><p className="mt-1 text-slate-500">Waist {m.waist ? formatLength(m.waist, displaySettings.units) : "—"} · Chest {m.chest ? formatLength(m.chest, displaySettings.units) : "—"} · Arm {m.arm ? formatLength(m.arm, displaySettings.units) : "—"}</p></div>)}</div>
           </section>
           <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-center justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-widest text-slate-400">Progress photos</p><h2 className="mt-2 text-2xl font-black">Visual timeline</h2></div><label className="cursor-pointer rounded-xl bg-emerald-500 px-4 py-3 text-sm font-black text-white">+ Photo<input type="file" accept="image/*" className="hidden" onChange={e=>{void addProgressPhoto(e.target.files?.[0]); e.currentTarget.value="";}}/></label></div>
+            <div className="flex items-center justify-between gap-4"><div><p className="text-xs font-black uppercase tracking-widest text-slate-600">Progress photos</p><h2 className="mt-2 text-2xl font-black">Visual timeline</h2></div><label className="cursor-pointer rounded-xl bg-blue-500 px-4 py-3 text-sm font-black text-white">+ Photo<input type="file" accept="image/*" className="hidden" onChange={e=>{void addProgressPhoto(e.target.files?.[0]); e.currentTarget.value="";}}/></label></div>
             {progressPhotos.length ? <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">{progressPhotos.slice().reverse().map(photo=><div key={photo.id} className="overflow-hidden rounded-2xl bg-slate-100"><img src={photo.dataUrl} alt="Progress" className="aspect-[3/4] w-full object-cover"/><div className="flex items-center justify-between gap-2 p-2"><p className="text-xs font-bold text-slate-500">{photo.date}</p><button type="button" onClick={()=>setProgressPhotos(current=>current.filter(item=>item.id!==photo.id))} className="text-xs font-bold text-red-500">Delete</button></div></div>)}</div> : <div className="mt-5 rounded-2xl bg-slate-50 p-8 text-center text-sm text-slate-500">No progress photos yet.</div>}
           </section>
         </div>
@@ -5832,13 +5987,13 @@ function Progress({
                       event.target.value
                     )
                   }
-                  className="w-full rounded-xl border border-slate-300 bg-slate-50 p-4 outline-none focus:border-emerald-500"
+                  className="w-full rounded-xl border border-slate-300 bg-slate-50 p-4 outline-none focus:border-blue-500"
                 />
               </div>
 
               <button
                 onClick={addWeight}
-                className="self-end rounded-xl bg-emerald-500 px-7 py-4 font-semibold text-black transition hover:bg-emerald-400"
+                className="self-end rounded-xl bg-blue-500 px-7 py-4 font-semibold text-white transition hover:bg-blue-400"
               >
                 Add
               </button>
@@ -5914,7 +6069,7 @@ function Progress({
                       event.target.value
                     )
                   }
-                  className="min-w-64 rounded-xl border border-slate-300 bg-slate-50 p-4 outline-none focus:border-emerald-500"
+                  className="min-w-64 rounded-xl border border-slate-300 bg-slate-50 p-4 outline-none focus:border-blue-500"
                 >
                   {exerciseOptions.map(
                     (exercise) => (
@@ -5933,7 +6088,7 @@ function Progress({
             {exerciseOptions.length === 0 ? (
               <div className="mt-6 rounded-2xl border border-slate-200 bg-slate-50 p-6 text-slate-500">
                 Finish a workout with logged sets
-                first. Mucipes will use your
+                first. CYG will use your
                 workout history automatically.
               </div>
             ) : (
@@ -6029,7 +6184,7 @@ function Progress({
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
-              Best performance Mucipes can find
+              Best performance CYG can find
               in your workout history.
             </p>
           </div>
@@ -6049,7 +6204,7 @@ function Progress({
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div>
-                      <p className="text-sm font-semibold tracking-wider text-emerald-600">
+                      <p className="text-sm font-semibold tracking-wider text-blue-600">
                         PR
                       </p>
 
@@ -6086,7 +6241,7 @@ function Progress({
 function ProgressMini({label,value}:{label:string;value:string|number}) {
   return (
     <div className="rounded-2xl bg-slate-50 p-4">
-      <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className="text-xs font-bold uppercase tracking-wider text-slate-600">{label}</p>
       <p className="mt-1 text-xl font-black text-slate-900">{value}</p>
     </div>
   );
@@ -6106,7 +6261,7 @@ function ProgressTabButton({
       onClick={onClick}
       className={`rounded-xl px-4 py-3 text-sm font-semibold transition ${
         active
-          ? "bg-emerald-500 text-black"
+          ? "bg-blue-500 text-white"
           : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
       }`}
     >
@@ -6167,7 +6322,7 @@ function LineChart({
       <div className="rounded-2xl border border-slate-200 bg-slate-50 p-6">
         <div className="flex min-h-52 items-center justify-center">
           <div className="text-center">
-            <div className="mx-auto h-4 w-4 rounded-full bg-emerald-500" />
+            <div className="mx-auto h-4 w-4 rounded-full bg-blue-500" />
 
             <p className="mt-3 text-3xl font-bold">
               {round1(points[0].value)}{" "}
@@ -6262,7 +6417,7 @@ function LineChart({
             points={polyline}
             fill="none"
             stroke="currentColor"
-            className="text-emerald-600"
+            className="text-blue-600"
             strokeWidth="4"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -6275,7 +6430,7 @@ function LineChart({
                 cy={yFor(point.value)}
                 r="6"
                 fill="currentColor"
-                className="text-emerald-600"
+                className="text-blue-600"
               />
 
               <text
@@ -6307,7 +6462,7 @@ function LineChart({
         </svg>
       </div>
 
-      <p className="mt-1 text-right text-xs text-slate-400">
+      <p className="mt-1 text-right text-xs text-slate-600">
         {unit}
       </p>
     </div>
@@ -6378,13 +6533,77 @@ async function compressProgressPhoto(file: File) {
 }
 
 function getTodayDateInput() {
-  const now = new Date();
-  const local = new Date(
-    now.getTime() -
-      now.getTimezoneOffset() * 60000
-  );
+  return formatLocalDateKey(new Date());
+}
 
-  return local.toISOString().slice(0, 10);
+function formatLocalDateKey(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function normalizeDateKey(value: unknown) {
+  if (typeof value !== "string") return null;
+  const match = value.match(/^\d{4}-\d{2}-\d{2}/);
+  return match ? match[0] : null;
+}
+
+function parseFoodList(raw: string | null): Food[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(isFood) : [];
+  } catch {
+    return [];
+  }
+}
+
+function parseFoodDiaryHistory(raw: string | null): FoodDiaryDay[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((day) => ({
+        date: normalizeDateKey(day?.date) || "",
+        foods: Array.isArray(day?.foods) ? day.foods.filter(isFood) : [],
+      }))
+      .filter((day) => day.date)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  } catch {
+    return [];
+  }
+}
+
+function migrateLegacyFoodsIntoDiary(
+  history: FoodDiaryDay[],
+  legacyFoods: Food[],
+  legacyDate: string
+) {
+  if (legacyFoods.length === 0) return history;
+
+  const existing = history.find((day) => day.date === legacyDate);
+  if (existing && existing.foods.length > 0) return history;
+
+  return [
+    ...history.filter((day) => day.date !== legacyDate),
+    { date: legacyDate, foods: legacyFoods },
+  ].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function isFood(value: unknown): value is Food {
+  if (!value || typeof value !== "object") return false;
+  const food = value as Partial<Food>;
+  return (
+    typeof food.id === "number" &&
+    typeof food.name === "string" &&
+    typeof food.calories === "number" &&
+    typeof food.protein === "number" &&
+    typeof food.carbs === "number" &&
+    typeof food.fat === "number"
+  );
 }
 
 function getWeightEntryTime(
@@ -6487,8 +6706,8 @@ function MobileNavButton({
   return (
     <button
       onClick={() => setActivePage(page)}
-      className={`min-w-[62px] rounded-xl px-2 py-1.5 text-center transition ${
-        active ? "text-emerald-600" : "text-slate-400"
+      className={`min-w-0 flex-1 rounded-xl px-1 py-2 text-center transition ${
+        active ? "text-blue-600" : "text-slate-600"
       }`}
     >
       <span className="block text-lg font-black leading-5">{icon}</span>
@@ -6580,7 +6799,7 @@ function ProgressBar({
   return (
     <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
       <div
-        className="h-full rounded-full bg-emerald-500 transition-all"
+        className="h-full rounded-full bg-blue-500 transition-all"
         style={{
           width: `${percentage}%`,
         }}

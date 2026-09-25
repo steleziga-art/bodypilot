@@ -101,3 +101,7 @@ html[data-mucipes-theme=dark] .cyg-app-shell :is(.text-rose-500,.text-rose-600,.
 html[data-mucipes-theme=dark] .cyg-app-shell :is(.bg-red-50,.bg-rose-50) :is(.text-rose-500,.text-rose-600,.text-red-500,.text-red-600){color:#a62e45}
 @media(max-width:767px){.cyg-app-shell:has(.cyg-active-session) .cyg-mobile-header{display:none}.cyg-app-shell:has(.cyg-active-session) .cyg-page-heading{margin-top:12px}.cyg-active-session{padding-top:0}.cyg-elapsed-time{padding:8px 0 13px}.cyg-elapsed-time strong{font-size:48px}}
 @media(min-width:768px){.cyg-home-weight{grid-row:3/5;align-self:stretch}.cyg-home-week{grid-row:3}.cyg-home-weight .cyg-mini-trend{margin-top:12px;max-height:280px}}
+
+/* CYG Demo 0.9 final polish */
+.cyg-notice{margin:0 0 16px;padding:12px 14px;border-radius:14px;border:1px solid;font-size:13px;font-weight:700;line-height:1.45}.cyg-notice-success{background:#ecfdf5;border-color:#a7f3d0;color:#047857}.cyg-notice-error{background:#fff1f2;border-color:#fecdd3;color:#be123c}.cyg-notice-info{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8}
+button,a,input,select,textarea{touch-action:manipulation}.cyg-more-list button,.cyg-primary{min-height:44px}@media(max-width:767px){.cyg-more-page{width:100%;overflow-x:hidden}.cyg-more-list button{min-height:52px}.cyg-card{min-width:0}.fixed.inset-0>div{overscroll-behavior:contain}}

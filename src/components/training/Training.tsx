@@ -5,7 +5,6 @@ import {TrainingNavIcon} from './TrainingVisuals';
 
 import { useEffect, useMemo, useState, useRef } from "react";
 import { defaultExercises } from "./exercises";
-import LyftaImport from "./LyftaImport";
 import { ExerciseArt, AnatomyMap } from "./TrainingVisuals";
 import { HistoryView, ExerciseView, ProgressView } from "./TrainingViews";
 import CardioFields from "./CardioFields";
@@ -229,6 +228,22 @@ export default function Training() {
     } finally {
       setLoaded(true);
     }
+  }, []);
+
+  useEffect(() => {
+    const syncExternalHistory = (event: Event) => {
+      const detail = (event as CustomEvent<WorkoutHistoryEntry[]>).detail;
+      if (Array.isArray(detail)) {
+        setHistory(detail);
+        return;
+      }
+      try {
+        const parsed = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]");
+        if (Array.isArray(parsed)) setHistory(parsed);
+      } catch {}
+    };
+    window.addEventListener("cyg-training-history-updated", syncExternalHistory);
+    return () => window.removeEventListener("cyg-training-history-updated", syncExternalHistory);
   }, []);
 
   useEffect(() => {
@@ -583,19 +598,7 @@ export default function Training() {
 
       {activeTab === "history" && (
         <div className="mv-history-container">
-          <details className="mv-import-history"><summary>Import workouts from CSV</summary><LyftaImport
-            exercises={allExercises}
-            onImport={(entries) => {
-              setHistory((current) => {
-                const existing = new Set(current.map((workout) => workout.id));
-                const incoming = entries.filter((workout) => !existing.has(workout.id));
-                return [...incoming, ...current].sort(
-                  (a, b) => new Date(b.finishedAt).getTime() - new Date(a.finishedAt).getTime()
-                );
-              });
-            }}
-          />
-          </details><HistoryView
+          <HistoryView
             history={history}
             deleteHistoryEntry={deleteHistoryEntry}
             updateHistoryEntry={entry=>setHistory(current=>current.map(w=>w.id===entry.id?{...entry,estimatedCalories:estimateWorkoutCalories(entry.startedAt,new Date(entry.finishedAt),entry.exercises)}:w))}

@@ -12,10 +12,10 @@ export default function WorkoutOverview({routines,history,onStart,onEmpty,onNavi
  useEffect(()=>{try{const p=JSON.parse(localStorage.getItem("bodypilot-profile")||"{}");setProfile({trainingDays:p.trainingDays||3,preferredTrainingDays:p.preferredTrainingDays||[]})}catch{}},[]);
  const program=useMemo(()=>{
    const generated=routines.filter(r=>r.id.startsWith("bodypilot-plan-"));
-   if(generated.length)return orderTrainingDays(generated);
+   if(generated.length)return orderTrainingDays(generated).slice(0,Math.max(1,profile.trainingDays));
    const base=orderTrainingDays(routines);
    const ppl=base.length===3&&base.every(r=>splitFamily(r.name));
-   return ppl&&profile.trainingDays>=5?[...base,...base.slice(0,profile.trainingDays-3).map(r=>({...r,id:r.id+"-b",name:r.name+" B"}))]:base.slice(0,6);
+   return ppl&&profile.trainingDays>=5?[...base,...base.slice(0,profile.trainingDays-3).map(r=>({...r,id:r.id+"-b",name:r.name+" B"}))].slice(0,profile.trainingDays):base.slice(0,Math.max(1,profile.trainingDays));
  },[routines,profile.trainingDays]);
  const week=strengthWeek(program,profile.preferredTrainingDays);
  const chosen=week[selected]?.session;

@@ -136,7 +136,7 @@ export default function AccountPanel() {
 
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
               <StatusCard label="Account" value="Connected" detail="Supabase Auth" />
-              <StatusCard label="Session" value="Active" detail="Persists after refresh" />
+              <StatusCard label="Member since" value={new Intl.DateTimeFormat(undefined, { year: "numeric", month: "short", day: "numeric" }).format(new Date(session.user.created_at))} detail="CYG account created" />
             </div>
 
             <div className="mt-6 rounded-2xl bg-blue-50 p-4 text-sm text-blue-950">

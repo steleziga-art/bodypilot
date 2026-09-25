@@ -138,12 +138,100 @@ function rowsToHistory(rows: ParsedSet[], exercises: Exercise[]) {
   }).sort((a, b) => new Date(b.finishedAt).getTime() - new Date(a.finishedAt).getTime());
 }
 
+
+type LyftaApiSet = {
+  id?: string | number;
+  weight?: string | number;
+  reps?: string | number;
+  rir?: string | number;
+  is_completed?: boolean;
+};
+
+type LyftaApiExercise = {
+  exercise_id?: string | number;
+  excercise_name?: string;
+  exercise_name?: string;
+  sets?: LyftaApiSet[];
+};
+
+type LyftaApiWorkout = {
+  id: string | number;
+  title?: string;
+  workout_perform_date?: string;
+  exercises?: LyftaApiExercise[];
+};
+
+type LyftaApiResponse = {
+  workouts?: LyftaApiWorkout[];
+  error?: string;
+  message?: string;
+};
+
+function apiWorkoutsToHistory(workouts: LyftaApiWorkout[], exercises: Exercise[]) {
+  return workouts.flatMap((workout): WorkoutHistoryEntry[] => {
+    const finishedAt = new Date(workout.workout_perform_date || "");
+    if (Number.isNaN(finishedAt.getTime())) return [];
+    const mappedExercises = (workout.exercises || []).map((item, exerciseIndex) => {
+      const sourceName = item.excercise_name || item.exercise_name || "Imported exercise";
+      const mapped = mapExercise(sourceName, exercises);
+      const sets = (item.sets || []).filter((set) => set.is_completed !== false).map((set, setIndex): WorkoutSet => ({
+        id: `lyfta-api-set-${workout.id}-${item.exercise_id ?? exerciseIndex}-${set.id ?? setIndex}`,
+        weight: Math.max(0, Number(set.weight) || 0),
+        reps: Math.max(0, Math.round(Number(set.reps) || 0)),
+        rir: set.rir === "" || set.rir == null || !Number.isFinite(Number(set.rir)) ? null : Number(set.rir),
+        completed: true,
+      }));
+      return {
+        id: `lyfta-api-ex-${workout.id}-${item.exercise_id ?? exerciseIndex}`,
+        exerciseId: mapped.id,
+        exerciseName: mapped.name,
+        sets,
+      };
+    }).filter((item) => item.sets.length > 0);
+    const totalSets = mappedExercises.reduce((sum, item) => sum + item.sets.length, 0);
+    const durationSeconds = Math.max(8 * 60, 3 * 60 + totalSets * 150 + mappedExercises.length * 90);
+    const startedAt = new Date(finishedAt.getTime() - durationSeconds * 1000);
+    return [{
+      id: `lyfta-api-${workout.id}`,
+      name: workout.title?.trim() || "Lyfta workout",
+      startedAt: startedAt.toISOString(),
+      finishedAt: finishedAt.toISOString(),
+      durationSeconds,
+      exercises: mappedExercises,
+    }];
+  }).sort((a, b) => Date.parse(b.finishedAt) - Date.parse(a.finishedAt));
+}
+
 export default function LyftaImport({ exercises, onImport }: Props) {
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<ParsedSet[]>([]);
   const [fileName, setFileName] = useState("");
   const [error, setError] = useState("");
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState("");
   const history = useMemo(() => rowsToHistory(rows, exercises), [rows, exercises]);
+
+  async function syncLyfta() {
+    setSyncing(true);
+    setError("");
+    setSyncMessage("");
+    try {
+      const response = await fetch("/api/lyfta/workouts", { cache: "no-store" });
+      const data = (await response.json()) as LyftaApiResponse;
+      if (!response.ok) throw new Error(data.error || data.message || "Lyfta sync failed.");
+      const entries = apiWorkoutsToHistory(data.workouts || [], exercises);
+      if (!entries.length) {
+        setSyncMessage("Lyfta returned no completed workouts for this account. You can still import your history with CSV.");
+        return;
+      }
+      onImport(entries);
+      setSyncMessage(`Synced ${entries.length} Lyfta workout${entries.length === 1 ? "" : "s"}. Existing matching workouts are kept only once.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not sync Lyfta.");
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   async function handleFile(file?: File) {
     if (!file) return;
@@ -184,12 +272,17 @@ export default function LyftaImport({ exercises, onImport }: Props) {
     <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-black uppercase tracking-widest text-blue-600">Bring your history</p>
-          <h3 className="mt-1 text-lg font-black">Import workouts from CSV</h3>
-          <p className="mt-1 text-sm text-slate-500">Works with Lyfta-style workout exports that contain date, exercise, weight and reps columns.</p>
+          <div className="flex items-center gap-2"><p className="text-xs font-black uppercase tracking-widest text-blue-600">Bring your history</p><span className="rounded-lg bg-blue-50 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-blue-700">Beta</span></div>
+          <h3 className="mt-1 text-lg font-black">Lyfta</h3>
+          <p className="mt-1 text-sm text-slate-500">Try direct sync, or import a CSV if Lyfta does not return your completed workouts.</p>
         </div>
-        <button type="button" onClick={() => setOpen(true)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-black">Import</button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => void syncLyfta()} disabled={syncing} className="rounded-xl bg-blue-500 px-4 py-2.5 text-sm font-black text-white disabled:opacity-60">{syncing ? "Syncing…" : "Sync now"}</button>
+          <button type="button" onClick={() => setOpen(true)} className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-black">Import CSV</button>
+        </div>
       </div>
+      {syncMessage && <div className="mt-4 rounded-2xl bg-emerald-50 p-4 text-sm font-bold text-emerald-700">{syncMessage}</div>}
+      {error && !open && <div className="mt-4 rounded-2xl bg-rose-50 p-4 text-sm font-bold text-rose-700">{error}</div>}
 
       {open && (
         <div className="fixed inset-0 z-[95] flex items-end justify-center bg-slate-950/50 p-3 sm:items-center">

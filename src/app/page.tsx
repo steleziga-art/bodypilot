@@ -11,6 +11,8 @@ import FoodSearch from "@/components/FoodSearch";
 import NutritionInsights from "@/components/nutrition/NutritionInsights";
 import MealOptimizer from "@/components/MealOptimizer";
 import Training from "@/components/training/Training";
+import LyftaImport from "@/components/training/LyftaImport";
+import { defaultExercises } from "@/components/training/exercises";
 import AccountPanel from "@/components/account/AccountPanel";
 import NutritionHub from "@/components/nutrition/NutritionHub";
 import FriendsPanel from "@/components/social/FriendsPanel";
@@ -1488,9 +1490,14 @@ function OnboardingModal({
             <PlanSelect
               label="Training days"
               value={String(draft.trainingDays)}
-              onChange={(value) =>
-                update("trainingDays", Number(value))
-              }
+              onChange={(value) => {
+                const nextDays = Number(value);
+                setDraft((current) => ({
+                  ...current,
+                  trainingDays: nextDays,
+                  preferredTrainingDays: (current.preferredTrainingDays ?? []).slice(0, nextDays),
+                }));
+              }}
               options={[
                 ["2", "2 days / week"],
                 ["3", "3 days / week"],
@@ -1756,7 +1763,7 @@ function MorePanelContent({
     return (
       <div className="mt-6 space-y-3 text-sm text-slate-600">
         <div className="rounded-2xl bg-slate-50 p-4"><p className="font-black text-slate-900">Quick help</p><p className="mt-1">Your data is synced to your CYG cloud account with local browser caching for fast loading.</p></div>
-        <div className="rounded-2xl bg-slate-50 p-4"><p className="font-black text-slate-900">Feedback</p><p className="mt-1">Support and feedback submission will connect to the production backend later.</p></div>
+        <div className="rounded-2xl bg-slate-50 p-4"><p className="font-black text-slate-900">Feedback</p><p className="mt-1">Feedback is sent securely to CYG so bug reports and suggestions can be reviewed.</p></div>
       </div>
     );
   }
@@ -1929,7 +1936,29 @@ function MoreFullPage({
       { name: "Garmin", detail: "Training and activity data", status: "Garmin API authorization required" },
       { name: "Strava", detail: "Workout activity sync", status: "OAuth integration not configured" },
     ];
-    return <div className="space-y-4"><div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900"><p className="font-black">No fake connections</p><p className="mt-1">CYG only shows a connection as available when the required platform authorization is actually configured. Your current web build keeps these integrations read-only on this screen.</p></div><div className="grid gap-4 md:grid-cols-2">{devices.map((device)=><div key={device.name} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-4"><div><p className="text-lg font-black">{device.name}</p><p className="mt-1 text-sm text-slate-500">{device.detail}</p></div><span className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-500">Unavailable</span></div><div className="mt-5 rounded-xl bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-500">{device.status}</div></div>)}</div></div>;
+    const importLyfta = (entries: TrainingHistoryEntry[]) => {
+      let current: TrainingHistoryEntry[] = [];
+      try {
+        const parsed = JSON.parse(localStorage.getItem("bodypilot-workout-history") || "[]");
+        if (Array.isArray(parsed)) current = parsed;
+      } catch {}
+      const existing = new Set(current.map((workout) => workout.id));
+      const signatures = new Set(current.map((workout) => `${workout.finishedAt.slice(0, 10)}|${workout.name.trim().toLowerCase()}`));
+      const incoming = entries.filter((workout) => {
+        const signature = `${workout.finishedAt.slice(0, 10)}|${workout.name.trim().toLowerCase()}`;
+        return !existing.has(workout.id) && !signatures.has(signature);
+      });
+      const merged = [...incoming, ...current].sort((a,b) => Date.parse(b.finishedAt) - Date.parse(a.finishedAt));
+      localStorage.setItem("bodypilot-workout-history", JSON.stringify(merged));
+      void saveCloudData("workout_history", merged);
+      window.dispatchEvent(new CustomEvent("cyg-training-history-updated", { detail: merged }));
+      window.dispatchEvent(new Event("mucipes-workout-changed"));
+    };
+    return <div className="space-y-5">
+      <LyftaImport exercises={defaultExercises} onImport={importLyfta} />
+      <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-900"><p className="font-black">Connected apps & devices</p><p className="mt-1">Lyfta sync is available here. Other services stay unavailable until their platform authorization is configured.</p></div>
+      <div className="grid gap-4 md:grid-cols-2">{devices.map((device)=><div key={device.name} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start justify-between gap-4"><div><p className="text-lg font-black">{device.name}</p><p className="mt-1 text-sm text-slate-500">{device.detail}</p></div><span className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-500">Unavailable</span></div><div className="mt-5 rounded-xl bg-slate-50 px-4 py-3 text-xs font-semibold text-slate-500">{device.status}</div></div>)}</div>
+    </div>;
   }
 
   if (page === "support") {
@@ -1950,8 +1979,13 @@ function MoreFullPage({
         <MoreStat label="Profile" value={formatWeight(profile.weight, readMucipesDisplaySettings().units)} />
       </section>
       <section className="rounded-3xl border border-slate-200 bg-white p-6">
-        <h3 className="font-black">About this version</h3>
-        <p className="mt-2 text-sm leading-6 text-slate-500">Core training, nutrition, progress, social, fasting and guided-plan flows are active. External health/device integrations remain intentionally unavailable until their platform authorization is configured.</p>
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-black uppercase tracking-widest text-blue-600">Demo release</p><h3 className="mt-1 text-xl font-black">CYG Demo 0.9</h3></div><span className="rounded-xl bg-blue-50 px-3 py-2 text-xs font-black text-blue-700">Preview</span></div>
+        <p className="mt-3 text-sm leading-6 text-slate-500">Training, nutrition, progress, social, fasting and guided-plan flows are active. External health and device integrations remain unavailable until their platform authorization is configured.</p>
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
+          <div className="rounded-2xl bg-slate-50 p-4"><p className="font-black text-slate-900">Privacy</p><p className="mt-1 text-xs leading-5 text-slate-500">CYG uses your account and app data to provide syncing and fitness features. Demo users should avoid entering information they do not want stored in the demo environment.</p></div>
+          <div className="rounded-2xl bg-slate-50 p-4"><p className="font-black text-slate-900">Terms</p><p className="mt-1 text-xs leading-5 text-slate-500">CYG Demo 0.9 is a preview build for testing. Features, calculations and integrations can change before a public release.</p></div>
+        </div>
+        <p className="mt-4 text-xs text-slate-500">Contact: chooseyourowngoal@gmail.com</p>
       </section>
     </div>
   );
@@ -1959,29 +1993,43 @@ function MoreFullPage({
 
 function FeedbackBox() {
   const [text, setText] = useState("");
-  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [category, setCategory] = useState<"bug" | "suggestion" | "other">("suggestion");
+  const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error" | "signin">("idle");
 
   async function submitFeedback() {
     const clean = text.trim();
     if (!clean || status === "saving") return;
     setStatus("saving");
-    const entry = { id: `${Date.now()}`, createdAt: new Date().toISOString(), message: clean };
     try {
-      const raw = localStorage.getItem("bodypilot-feedback");
-      const current = raw ? JSON.parse(raw) : [];
-      const next = [...(Array.isArray(current) ? current : []), entry].slice(-50);
-      localStorage.setItem("bodypilot-feedback", JSON.stringify(next));
-      await saveCloudData("feedback", next);
+      const supabase = getSupabaseBrowserClient();
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      if (userError || !user) { setStatus("signin"); return; }
+      const { error } = await supabase.from("feedback").insert({
+        user_id: user.id,
+        user_email: user.email ?? null,
+        category,
+        message: clean,
+        app_version: "CYG Demo 0.9",
+        page_path: typeof window !== "undefined" ? window.location.pathname : "/",
+      });
+      if (error) throw error;
       setText("");
       setStatus("saved");
-      window.setTimeout(() => setStatus("idle"), 2200);
+      window.setTimeout(() => setStatus("idle"), 3000);
     } catch (error) {
       console.error("Could not save feedback", error);
       setStatus("error");
     }
   }
 
-  return <section className="rounded-3xl border border-slate-200 bg-white p-6"><h2 className="text-xl font-black">Send feedback</h2><p className="mt-2 text-sm text-slate-500">Share your ideas or report a problem.</p><textarea value={text} onChange={(event)=>{setText(event.target.value); if(status==="error") setStatus("idle");}} className="mt-4 min-h-40 w-full rounded-2xl border border-slate-200 p-4 outline-none focus:border-blue-400" placeholder="Tell us what should be improved..." /><div className="mt-3 flex flex-wrap items-center gap-3"><button type="button" disabled={!text.trim() || status==="saving"} onClick={()=>void submitFeedback()} className="rounded-xl bg-blue-500 px-5 py-3 font-black text-white disabled:opacity-50">{status==="saving"?"Saving…":status==="saved"?"Saved ✓":"Send feedback"}</button>{status==="error"&&<p className="text-sm font-semibold text-red-500">Could not sync feedback. Try again.</p>}</div></section>;
+  return <section className="rounded-3xl border border-slate-200 bg-white p-6">
+    <h2 className="text-xl font-black">Send feedback</h2>
+    <p className="mt-2 text-sm text-slate-500">Report a bug or tell us what would make CYG better.</p>
+    <div className="mt-4 flex flex-wrap gap-2">{([['bug','Bug'],['suggestion','Suggestion'],['other','Other']] as const).map(([value,label])=><button key={value} type="button" onClick={()=>{setCategory(value);setStatus("idle")}} className={`rounded-xl border px-4 py-2 text-sm font-black ${category===value?'border-blue-500 bg-blue-50 text-blue-700':'border-slate-200 bg-white text-slate-600'}`}>{label}</button>)}</div>
+    <textarea value={text} maxLength={2000} onChange={(event)=>{setText(event.target.value); if(status!=="idle") setStatus("idle");}} className="mt-4 min-h-40 w-full rounded-2xl border border-slate-200 p-4 outline-none focus:border-blue-400" placeholder="Tell us what happened or what should be improved..." />
+    <div className="mt-2 flex items-center justify-between gap-3"><span className="text-xs text-slate-400">CYG Demo 0.9</span><span className="text-xs text-slate-400">{text.length}/2000</span></div>
+    <div className="mt-3 flex flex-wrap items-center gap-3"><button type="button" disabled={!text.trim() || status==="saving"} onClick={()=>void submitFeedback()} className="min-h-11 rounded-xl bg-blue-500 px-5 py-3 font-black text-white disabled:opacity-50">{status==="saving"?"Sending…":status==="saved"?"Sent ✓":"Send feedback"}</button>{status==="saved"&&<p className="text-sm font-semibold text-emerald-600">Thanks — feedback sent.</p>}{status==="signin"&&<p className="text-sm font-semibold text-amber-600">Sign in to send feedback.</p>}{status==="error"&&<p className="text-sm font-semibold text-red-500">Could not send feedback. Try again.</p>}</div>
+  </section>;
 }
 
 function ProfilePage({
@@ -2020,6 +2068,11 @@ function ProfilePage({
   useEffect(() => setShowLooksShortcut(localStorage.getItem("cyg-pin-looksmaxing") === "true"), []);
   const [profileSaved, setProfileSaved] = useState(false);
   const [settingsSaved, setSettingsSaved] = useState(false);
+  const [notice, setNotice] = useState<{ tone: "success" | "error" | "info"; text: string } | null>(null);
+  const showNotice = (text: string, tone: "success" | "error" | "info" = "info") => {
+    setNotice({ tone, text });
+    window.setTimeout(() => setNotice(null), 3200);
+  };
 
   useEffect(() => {
     const intent = localStorage.getItem("mucipes-more-detail-intent");
@@ -2084,7 +2137,7 @@ function ProfilePage({
       window.setTimeout(() => setSettingsSaved(false), 1800);
     } catch (error) {
       console.error("Could not save CYG display settings:", error);
-      alert("Settings were saved on this device, but cloud sync failed.");
+      showNotice("Settings were saved on this device, but cloud sync failed.", "error");
     }
   }
 
@@ -2111,7 +2164,7 @@ function ProfilePage({
       const text = await file.text();
       const parsed = JSON.parse(text) as { localData?: Record<string, unknown> };
       if (!parsed || typeof parsed !== "object" || !parsed.localData || typeof parsed.localData !== "object") {
-        alert("This does not look like a CYG backup.");
+        showNotice("This does not look like a CYG backup.", "error");
         return;
       }
       if (!window.confirm("Import this backup? Existing CYG local data with the same keys will be replaced.")) return;
@@ -2120,11 +2173,11 @@ function ProfilePage({
         localStorage.setItem(key, JSON.stringify(value));
       }
       window.dispatchEvent(new Event("mucipes-settings-changed"));
-      alert("Backup imported. CYG will reload now.");
+      showNotice("Backup imported. Reloading CYG…", "success");
       window.location.reload();
     } catch (error) {
       console.error("CYG backup import failed", error);
-      alert("Could not import this backup file.");
+      showNotice("Could not import this backup file.", "error");
     }
   }
 
@@ -2177,10 +2230,10 @@ function ProfilePage({
     { title: "Calendar", detail: "Workout and nutrition history", icon: "calendar", action: () => setMorePage("calendar") },
     { title: "Achievements", detail: "PRs, streaks and milestones", icon: "trophy", action: () => setMorePage("achievements") },
     { title: "Notifications", detail: "Workout, nutrition and weigh-in reminders", icon: "bell", action: () => setMorePage("notifications") },
-    { title: "Connect Apps & Devices", detail: "Apple Health, Strava, Garmin and more", icon: "settings", action: () => setMorePage("devices") },
+    { title: "Apps & Devices", detail: "Lyfta beta, CSV import and upcoming integrations", icon: "settings", action: () => setMorePage("devices") },
     { title: "Data & Backup", detail: "Local data, export and cloud status", icon: "share", action: () => openDetail("data") },
     { title: "Support", detail: "Help center and feedback", icon: "info", action: () => setMorePage("support") },
-    { title: "About", detail: "Version, privacy and CYG information", icon: "info", action: () => setMorePage("about") },
+    { title: "About", detail: "Demo version, privacy, terms and contact", icon: "info", action: () => setMorePage("about") },
   ];
 
   if (morePage !== "main") {
@@ -2217,6 +2270,7 @@ function ProfilePage({
       <div className="min-h-[70vh]">
         <button onClick={() => setDetailPage("main")} className="mb-6 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 shadow-sm hover:bg-slate-50">← Back to More</button>
         <PageHeader title={titles[detailPage]}/>
+        {notice && <div role="status" className={`cyg-notice cyg-notice-${notice.tone}`}>{notice.text}</div>}
 
         {detailPage === "profile" && (
           <div className="max-w-4xl space-y-5">
@@ -2304,9 +2358,10 @@ function ProfilePage({
 
   return <div className="cyg-more-page">
     <PageHeader title="More" subtitle="Your profile, preferences and milestones."/>
+    {notice && <div role="status" className={`cyg-notice cyg-notice-${notice.tone}`}>{notice.text}</div>}
     <button className="cyg-card cyg-more-profile" onClick={()=>setMorePage('account')}><span className="cyg-profile-badge"><CygIcon name="user" size={25}/></span><div><strong>My CYG</strong><p>{goalLabel} · {profile.trainingDays} training days per week</p></div><CygIcon name="chevron" size={18}/></button>
     <label className="cyg-settings-search"><CygIcon name="search" size={19}/><input aria-label="Search settings" value={moreSearch} onChange={e=>setMoreSearch(e.target.value)} placeholder="Search settings"/></label>
-    <div className="cyg-more-grid">{[['Your account',moreItems.slice(0,3)],['Your journey',moreItems.filter(item=>['Progress','Calendar','Achievements','Friends'].includes(item.title))],['Your tools',moreItems.filter(item=>['Fasting','Looksmaxing','Show Looksmaxing in navigation','CYG Coach'].includes(item.title))],['Preferences & help',moreItems.filter(item=>['Display & Appearance','Notifications','Connect Apps & Devices','Data & Backup','Support','About'].includes(item.title))]].map(([title,items])=>{const filtered=(items as typeof moreItems).filter(item=>`${item.title} ${item.detail}`.toLowerCase().includes(moreSearch.toLowerCase()));return filtered.length?<section key={title as string}><h2>{title as string}</h2><div className="cyg-card cyg-more-list">{filtered.map(item=><button key={item.title} onClick={item.action}><span><CygIcon name={item.icon} size={20}/></span><div><strong>{item.title}</strong><small>{item.detail}</small></div><CygIcon name="chevron" size={16}/></button>)}</div></section>:null})}</div>
+    <div className="cyg-more-grid">{[['Your account',moreItems.slice(0,3)],['Your journey',moreItems.filter(item=>['Progress','Calendar','Achievements','Friends'].includes(item.title))],['Your tools',moreItems.filter(item=>['Fasting','Looksmaxing','Show Looksmaxing in navigation','CYG Coach'].includes(item.title))],['Preferences & help',moreItems.filter(item=>['Display & Appearance','Notifications','Apps & Devices','Data & Backup','Support','About'].includes(item.title))]].map(([title,items])=>{const filtered=(items as typeof moreItems).filter(item=>`${item.title} ${item.detail}`.toLowerCase().includes(moreSearch.toLowerCase()));return filtered.length?<section key={title as string}><h2>{title as string}</h2><div className="cyg-card cyg-more-list">{filtered.map(item=><button key={item.title} onClick={item.action}><span><CygIcon name={item.icon} size={20}/></span><div><strong>{item.title}</strong><small>{item.detail}</small></div><CygIcon name="chevron" size={16}/></button>)}</div></section>:null})}</div>
     <details className="cyg-plan-preview"><summary>Membership preview · {planTier==='premium'?'Premium':'Free'}</summary><p>Explore Free and Premium features during testing.</p><div>{(['free','premium'] as const).map(tier=><button key={tier} onClick={()=>setPlanTier(tier)} className={planTier===tier?'is-active':''}>{tier==='free'?'Free':'Premium'}</button>)}</div></details>
   </div>;
 }
@@ -2781,7 +2836,7 @@ function GetFitPlan({
     };
   }, [nutritionHistory]);
 
-  function saveTrainingPlanToTraining() {
+  function saveTrainingPlanToTraining(planOverride?: GeneratedTrainingDay[], scheduleOverride?: WeeklyScheduleDay[]) {
     try {
       const existingRaw = localStorage.getItem(
         "bodypilot-saved-workouts"
@@ -2795,7 +2850,10 @@ function GetFitPlan({
         ? existing
         : [];
 
-      const generated = trainingPlan.map((day, dayIndex) => ({
+      const planToSave = planOverride ?? trainingPlan;
+      const scheduleToSave = scheduleOverride ?? weeklySchedule;
+
+      const generated = planToSave.map((day, dayIndex) => ({
         id: `bodypilot-plan-${Date.now()}-${dayIndex}`,
         name: day.name,
         createdAt: new Date().toISOString(),
@@ -2833,8 +2891,8 @@ function GetFitPlan({
         "bodypilot-generated-training-plan",
         JSON.stringify({
           savedAt: new Date().toISOString(),
-          days: trainingPlan,
-          weeklySchedule,
+          days: planToSave,
+          weeklySchedule: scheduleToSave,
         })
       );
 
@@ -2882,6 +2940,8 @@ function GetFitPlan({
 
   function applyPlan() {
     const next = calculateNutritionTargets(draft);
+    const nextTrainingPlan = buildTrainingPlan(draft);
+    const nextWeeklySchedule = buildWeeklySchedule(draft, nextTrainingPlan);
 
     setProfile(draft);
     setGoals({
@@ -2890,7 +2950,7 @@ function GetFitPlan({
       carbs: next.carbs,
       fat: next.fat,
     });
-    setCalculated(true);
+    saveTrainingPlanToTraining(nextTrainingPlan, nextWeeklySchedule);
   }
 
 
@@ -2920,7 +2980,45 @@ function GetFitPlan({
       <section className="mt-7 grid gap-3 sm:grid-cols-3">
         <div className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-slate-950"><p className="text-xs font-black uppercase tracking-widest text-blue-400">Plan status</p><p className="mt-2 text-2xl font-black">{planStatus}</p><p className="mt-2 text-xs text-slate-600">CYG uses your logged trend before suggesting changes.</p></div>
         <div className="rounded-3xl border border-slate-200 bg-white p-5"><p className="text-xs font-black uppercase tracking-widest text-slate-600">Consistency</p><p className="mt-2 text-3xl font-black">{planCompletion}%</p><div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full bg-blue-500" style={{width:`${planCompletion}%`}} /></div></div>
-        <div className="rounded-3xl border border-slate-200 bg-white p-5"><p className="text-xs font-black uppercase tracking-widest text-slate-600">Current target</p><p className="mt-2 text-3xl font-black">{formatEnergy(goals.calories, displaySettings.energyUnit)}</p><p className="mt-2 text-xs text-slate-500">{goals.protein} g protein · {profile.trainingDays} training days</p></div>
+        <div className="rounded-3xl border border-slate-200 bg-white p-5"><p className="text-xs font-black uppercase tracking-widest text-slate-600">Current target</p><p className="mt-2 text-3xl font-black">{formatEnergy(goals.calories, displaySettings.energyUnit)}</p><p className="mt-2 text-xs text-slate-500">{goals.protein} g protein · {profile.trainingDays} strength days</p></div>
+      </section>
+
+      <section className="mt-5 rounded-3xl border border-blue-200 bg-blue-50/50 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-blue-600">One connected plan</p>
+            <h2 className="mt-1 text-xl font-black">Nutrition + training use the same profile</h2>
+            <p className="mt-1 text-sm text-slate-600">Your calories, gym frequency, experience and equipment all stay linked inside one plan.</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <span className="rounded-full border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700">{draft.trainingDays} gym day{draft.trainingDays === 1 ? "" : "s"} / week</span>
+              <span className="rounded-full border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700">{(draft.experience ?? "intermediate").replace(/^./, (letter) => letter.toUpperCase())}</span>
+              <span className="rounded-full border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700">{(draft.equipment ?? "full-gym").replace("-", " ")}</span>
+              <span className="rounded-full border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700">{formatEnergy(result.calories, displaySettings.energyUnit)} / day</span>
+              <span className="rounded-full border border-blue-200 bg-white px-3 py-2 text-xs font-bold text-blue-700">{(draft.cardioGoal ?? "health") === "none" ? "No planned cardio" : `${draft.cardioDays ?? 2} cardio day${(draft.cardioDays ?? 2) === 1 ? "" : "s"} separate`}</span>
+            </div>
+          </div>
+          <div className="min-w-[250px] max-w-sm rounded-2xl border border-blue-200 bg-white p-4">
+            <p className="text-xs font-black uppercase tracking-widest text-slate-500">Apply connected plan</p>
+            <p className="mt-2 text-sm text-slate-600">Save both nutrition targets and the training plan together.</p>
+            <button
+              onClick={applyPlan}
+              className="mt-4 w-full rounded-xl bg-blue-500 py-3 text-base font-bold text-white transition hover:bg-blue-400"
+            >
+              Apply nutrition + training plan
+            </button>
+            {calculated && (
+              <div className="mt-3 rounded-xl border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-500">
+                Full plan applied. Nutrition targets and your strength-training program are now updated together.
+                <button
+                  onClick={() => setActivePage("dashboard")}
+                  className="ml-2 font-bold underline"
+                >
+                  Open Dashboard
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
       </section>
 
       <div className="mt-8 grid gap-6 lg:grid-cols-[1.05fr_0.95fr]">
@@ -3064,8 +3162,7 @@ function GetFitPlan({
                 )}
               </div>
               <p className="mt-2 text-xs text-slate-600">
-                Pick up to {draft.trainingDays} days. CYG uses these first
-                and fills any missing days automatically.
+                Pick up to {draft.trainingDays} strength-training days. CYG will not add an extra gym day; cardio is scheduled separately.
               </p>
             </div>
 
@@ -3261,25 +3358,9 @@ function GetFitPlan({
             <p className="mt-2 text-xs text-slate-500">Logged workouts are already represented by your chosen activity level; they are not added again to this plan estimate. Protein and fat are set first, with the remaining calories assigned to carbohydrates.</p>
           </div>
 
-          <button
-            onClick={applyPlan}
-            className="mt-6 w-full rounded-xl bg-blue-500 py-4 text-lg font-bold text-white transition hover:bg-blue-400"
-          >
-            Apply these targets
-          </button>
-
-          {calculated && (
-            <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm text-blue-500">
-              Plan applied. Your Nutrition and Dashboard targets are
-              now updated.
-              <button
-                onClick={() => setActivePage("dashboard")}
-                className="ml-2 font-bold underline"
-              >
-                Open Dashboard
-              </button>
-            </div>
-          )}
+          <div className="mt-6 rounded-2xl border border-blue-200 bg-blue-50/60 p-4 text-sm text-slate-600">
+            Use the <strong>Apply connected plan</strong> card above to save both your calorie targets and your full gym plan together.
+          </div>
 
           <p className="mt-4 text-xs leading-5 text-slate-600">
             These are estimates, not medical or dietetic advice.
@@ -3319,12 +3400,17 @@ function GetFitPlan({
                     >
                       <span className="cyg-week-session-mark cyg-day-number" aria-hidden="true">{dayIndex + 1}</span>
                       <div>
-                      <p className="cyg-week-session-title">
-                        {item.label}
-                      </p>
-                      <p className="cyg-week-session-detail">
-                        {item.detail}
-                      </p>
+                        <div className="mb-1 flex flex-wrap items-center gap-2">
+                          <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-widest ${item.kind === "strength" ? "bg-blue-100 text-blue-700" : "bg-emerald-100 text-emerald-700"}`}>
+                            {item.kind === "strength" ? "Gym" : "Cardio"}
+                          </span>
+                          <p className="cyg-week-session-title">
+                            {item.label}
+                          </p>
+                        </div>
+                        <p className="cyg-week-session-detail">
+                          {item.detail}
+                        </p>
                       </div>
                     </div>
                   ))
@@ -3357,11 +3443,10 @@ function GetFitPlan({
               Training Plan
             </p>
             <h2 className="mt-2 text-2xl font-bold">
-              Your {draft.trainingDays}-day starting program
+              Your {draft.trainingDays}-day strength program
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-              Built from your weekly availability, experience and equipment.
-              Use it as your starting structure and log the sessions in Training.
+              Exactly {draft.trainingDays} gym sessions per week, built from your availability, experience and equipment. Cardio is separate and does not count as a gym day.
             </p>
           </div>
 
@@ -3417,20 +3502,14 @@ function GetFitPlan({
           directly into Saved Workouts when you are ready.
         </div>
 
-        <div className="mt-5 flex flex-wrap gap-3">
-          <button
-            onClick={saveTrainingPlanToTraining}
-            className="rounded-xl bg-blue-500 px-5 py-3 font-bold text-white transition hover:bg-blue-400"
-          >
-            Save plan to Training
-          </button>
-
+        <div className="mt-5 flex flex-wrap items-center gap-3">
           <button
             onClick={() => setActivePage("training")}
             className="rounded-xl border border-slate-300 px-5 py-3 font-bold transition hover:bg-slate-100"
           >
             Open Training
           </button>
+          <p className="text-xs text-slate-500">Use “Apply nutrition + training plan” above to save both parts together.</p>
         </div>
 
         {planSavedToTraining && (
@@ -3653,6 +3732,7 @@ function GetFitPlan({
 type WeeklyScheduleItem = {
   label: string;
   detail: string;
+  kind: "strength" | "cardio";
 };
 
 type WeeklyScheduleDay = {
@@ -3687,6 +3767,7 @@ function getCardioSession(
         label: `${activity} · Quality`,
         detail:
           "20–35 min total. Use controlled tempo/interval work; avoid taking every interval to maximum effort.",
+        kind: "cardio",
       };
     }
 
@@ -3694,6 +3775,7 @@ function getCardioSession(
       label: `${activity} · Zone 2`,
       detail:
         "30–50 min easy aerobic work at a sustainable conversational effort.",
+      kind: "cardio",
     };
   }
 
@@ -3702,6 +3784,7 @@ function getCardioSession(
       label: `${activity} · Easy`,
       detail:
         "25–45 min mostly easy aerobic work. Use cardio to support the plan, not to compensate for food.",
+      kind: "cardio",
     };
   }
 
@@ -3709,6 +3792,7 @@ function getCardioSession(
     label: `${activity} · Zone 2`,
     detail:
       "20–40 min easy aerobic work at a sustainable conversational effort.",
+    kind: "cardio",
   };
 }
 
@@ -3750,6 +3834,7 @@ function buildWeeklySchedule(
       week[slot].items.push({
         label: trainingDay.name,
         detail: "Strength training",
+        kind: "strength",
       });
     }
   });
@@ -3851,12 +3936,7 @@ function buildTrainingPlan(
     Math.min(6, profile.trainingDays || 4)
   );
 
-  const sets =
-    profile.experience === "beginner"
-      ? 2
-      : profile.experience === "advanced"
-        ? 4
-        : 3;
+  const baseSets = profile.experience === "beginner" ? 2 : 3;
 
   const gym = profile.equipment === "full-gym";
   const home = profile.equipment === "home";
@@ -3939,12 +4019,11 @@ function buildTrainingPlan(
     name: string,
     reps: string,
     note = "Controlled reps · progress when the rep range is completed"
-  ): GeneratedTrainingExercise => ({
-    name,
-    sets,
-    reps,
-    note,
-  });
+  ): GeneratedTrainingExercise => {
+    const isolationPattern = /curl|raise|fly|pushdown|extension|calf|face pull/i;
+    const sets = isolationPattern.test(name) ? 2 : baseSets;
+    return { name, sets, reps, note };
+  };
 
   const uniqueExercises = (
     exercises: GeneratedTrainingExercise[]
@@ -5618,7 +5697,7 @@ function Progress({
 
   return (
     <div className="cyg-progress-page">
-      <PageHeader title="Progress" action={<button className="cyg-icon-button" aria-label="Log a body check-in" onClick={()=>setActiveProgressTab("weight")}><CygIcon name="plus"/></button>}/>
+      <PageHeader title="Progress"/>
       <div className="cyg-segments" aria-label="Progress sections">{([['overview','Overview'],['weight','Weight'],['strength','Strength'],['body','Photos & body'],['records','Records']] as const).map(([tab,label])=><button key={tab} className={activeProgressTab===tab?'is-active':''} onClick={()=>setActiveProgressTab(tab)}>{label}</button>)}</div>
       {activeProgressTab === "overview" && <div className="cyg-progress-grid">
         <section className="cyg-card"><div className="cyg-card-heading"><h2>Weight Trend</h2><div className="cyg-trend-change"><strong>{sortedWeightEntries.length>1?signedWeight(change):'—'}</strong><small>{first?`since ${formatShortDate(first.date)}`:'Log your first weigh-in'}</small></div></div><MiniTrend values={sortedWeightEntries.filter(e=>inProgressRange(e.date)).map(e=>displayWeightValue(e.weight))} labels={sortedWeightEntries.filter(e=>inProgressRange(e.date)).map(e=>formatShortDate(e.date))}/><div className="cyg-range-buttons">{([7,30,90,180,0] as const).map(days=><button key={days} className={progressRange===days?'is-active':''} onClick={()=>setProgressRange(days)}>{days===0?'All':days===7?'1W':`${days/30}M`}</button>)}</div><button className="cyg-inline-link" onClick={()=>setActiveProgressTab('weight')}>Log weight<CygIcon name="plus" size={16}/></button></section>

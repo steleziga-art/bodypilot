@@ -7,6 +7,15 @@ import flatArt from "./assets/cyg-flat-bench.png";
 import smithArt from "./assets/cyg-smith-incline.png";
 import shoulderArt from "./assets/cyg-seated-db-press.png";
 import rowArt from "./assets/cyg-supported-t-bar-row.png";
+import chestPressArt from "./assets/cyg-lever-chest-press.png";
+import barLatArt from "./assets/cyg-bar-lateral-pulldown.png";
+import tricepsSingleArt from "./assets/cyg-cable-one-arm-triceps-pushdown.png";
+import cableLateralArt from "./assets/cyg-cable-one-arm-lateral-raise.png";
+import seatedLateralArt from "./assets/cyg-seated-db-lateral-raise.png";
+import tricepsPushdownArt from "./assets/cyg-triceps-pushdown.png";
+import overheadTricepsArt from "./assets/cyg-overhead-triceps-extension.png";
+import preacherCurlArt from "./assets/cyg-preacher-curl.png";
+import legExtensionArt from "./assets/cyg-leg-extension.png";
 import muscles from "./assets/muscles-v2.png";
 import type { ReactNode } from "react";
 import type { MuscleGroup } from "./types";
@@ -14,19 +23,43 @@ import type { MuscleGroup } from "./types";
 const url = (image: unknown) => typeof image === "string" ? image : (image as {src:string}).src;
 const normalize = (name:string) => name.toLowerCase().replace(/[-–]/g," ").replace(/\s+/g," ").trim();
 const artwork: Record<string, unknown> = {
- "lat pulldown":latArt,
- "machine chest fly":flyArt,"pec deck":flyArt,
- "lever lying t bar row":rowArt,"chest supported t bar row":rowArt,
- "seated dumbbell shoulder press":shoulderArt,
- "barbell bench press":flatArt,"flat barbell bench press":flatArt,"bench press":flatArt,
- "smith machine incline bench press":smithArt,
+  "lat pulldown": latArt,
+  "bar lateral pulldown": barLatArt,
+  "lever lateral pulldown": barLatArt,
+  "cable lateral pulldown with v bar": barLatArt,
+  "cable wide neutral grip pulldown": barLatArt,
+  "machine chest fly": flyArt,
+  "pec deck": flyArt,
+  "lever seated fly": flyArt,
+  "lever chest press": chestPressArt,
+  "chest press machine": chestPressArt,
+  "lever lying t bar row": rowArt,
+  "chest supported t bar row": rowArt,
+  "seated dumbbell shoulder press": shoulderArt,
+  "seated shoulder press": shoulderArt,
+  "barbell bench press": flatArt,
+  "flat barbell bench press": flatArt,
+  "bench press": flatArt,
+  "smith machine incline bench press": smithArt,
+  "smith incline bench press": smithArt,
+  "cable one arm tricep pushdown": tricepsSingleArt,
+  "triceps pushdown": tricepsPushdownArt,
+  "cable triceps pushdown": tricepsPushdownArt,
+  "overhead triceps extension": overheadTricepsArt,
+  "overhead tricep extension": overheadTricepsArt,
+  "preacher curl": preacherCurlArt,
+  "leg extension": legExtensionArt,
+  "cable one arm lateral raise": cableLateralArt,
+  "dumbbell seated lateral raise": seatedLateralArt,
+  "seated lateral raise": seatedLateralArt,
 };
+
 export function hasExerciseArt(name:string) { return Boolean(artwork[normalize(name)]); }
 export function ExerciseArt({name,compact=false}:{name:string;compact?:boolean}) {
  const dialog=useRef<HTMLDialogElement>(null);
  const asset=artwork[normalize(name)];
  if(!asset)return <div className={`mv-exercise-art cyg-art-pending ${compact?'compact':''}`}><span>{compact?'CYG':name}</span><small>Illustration in preparation</small></div>;
- const img=<img src={url(asset)} alt={`${name}: anatomical exercise illustration with highlighted muscles`} loading="lazy"/>;
+ const img=<img src={url(asset)} alt={`${name}: anatomical exercise illustration`} loading="lazy"/>;
  if(compact)return <div className="mv-exercise-art cyg-anatomical-art compact">{img}</div>;
  return <div className="mv-exercise-art cyg-anatomical-art"><button type="button" className="cyg-art-open" aria-label={`Enlarge ${name} illustration`} onClick={()=>dialog.current?.showModal()}>{img}<span>Enlarge ↗</span></button><dialog className="cyg-art-dialog" ref={dialog} onClick={event=>{if(event.target===event.currentTarget)dialog.current?.close()}}><header><strong>{name}</strong><button type="button" autoFocus onClick={()=>dialog.current?.close()}>Close ×</button></header><img src={url(asset)} alt={`${name} enlarged illustration`}/></dialog></div>;
 }
